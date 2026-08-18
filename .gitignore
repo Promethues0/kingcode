@@ -8,3 +8,4 @@ node_modules/
 mac/build/
 win/bin/
 win/obj/
+win/publish/
