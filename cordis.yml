@@ -1,0 +1,155 @@
+# KingCode 组合树 —— 基于 DeepSeek Harness 的一次性编程智能体。
+# 底本：deepseek-harness examples/headless-agent/cordis.yml + headless bundle 的
+# runner 接线。每行 {id, name, config}，行序即挂载声明序（实际按 inject 依赖并发）。
+
+# 用户设置（$DSH_HOME/settings.yaml，热加载）：llm-deepseek: 节可免重启覆盖适配器配置
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+# 凭证库：进程环境变量 > $DSH_HOME/.credentials.yaml（0600，热加载）。
+# 适配器每次请求经它解析 DEEPSEEK_API_KEY，密钥永不写进本文件。
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: high
+    models:
+      - id: deepseek-v4-pro
+        contextWindow: 128000
+      - id: deepseek-v4-flash
+        contextWindow: 128000
+
+# headless runner 经 agentDefaultModel.currentSelection() 取默认模型
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-pro
+
+# bash 执行器的托管子进程组
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+# agent 骨架一揽子：llm/session/system-prompt/tools/skill/agent 注册表/goal/
+# jobs/tool-bash/AGENTS.md 装载/agent-loop（demo 包，正式发行时可按其
+# README 展开为自组 bundle）。agents 留空——headless runner 自建 agent。
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents: []
+    workspaceContext:
+      maxBytes: 65536
+    persona: |
+      You are KingCode, an expert coding agent powered by the {{model}} model.
+      Your working directory is {{cwd}}.
+
+      Verify your work by running the code or tests before declaring success.
+      Keep answers brief and factual. Respond in the language the user uses.
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.kingcode/sessions'
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+# 历史逼近上下文窗口时压缩旧段
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.16
+    maxTokens: 8192
+    compactionRetries: 1
+
+# 子代理身份投影；subagent 目录读取缺此能力会 fail loud
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+# 子代理：spawn（全新子会话）与 fork（复用已完成前缀）双后端
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn-in-process
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
+
+- id: subagent-fork-in-process
+  name: '@deepseek-ai/dsh-subagent-fork-in-process'
+  config:
+    providerName: fork
+
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: continuable
+    maxDepth: 1
+
+# fork 保持 one-shot：continuable 子代理的 report 工具与提示段先于 fork
+# 复用的继承历史（上游架构笔记 2026-08-10）
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+    backgroundMode: one-shot
+    enableRunInBackground: false
+    maxDepth: 1
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# 文件系统：observation-policy 必须先于 tool-fs（写/改要求先读过）
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-observation-policy
+  name: '@deepseek-ai/dsh-fs-observation-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+# Code Mode 执行容器（DSH_TOOLS_MODE=code/both 时模型可写 JS 编排工具）
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
+# KingCode 自定义工具示例：项目文件统计（本仓库 plugins/ 下，相对本文件解析）
+- id: kingcode-project-stats
+  name: './plugins/project-stats.js'
+
+# 一次性任务驱动：startup 解析任务位置参数（需 bin 先 provideCmdline），
+# runner 建 agent → followup → 等静默 → 打印最终回答 → 按结果退出
+- id: kingcode-startup
+  name: './plugins/startup.js'
+
+- id: headless-runner
+  name: '@deepseek-ai/dsh-headless'
+  inject: [headlessStartup]
+  config:
+    task: !!js ctx.headlessStartup.task

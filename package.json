@@ -1,0 +1,53 @@
+{
+  "name": "kingcode",
+  "version": "0.1.0",
+  "description": "KingCode —— 基于 DeepSeek Harness 的编程智能体（一次性任务 CLI）",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "kingcode": "./bin/kingcode.js"
+  },
+  "files": [
+    "bin",
+    "plugins",
+    "cordis.yml"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node test/test-project-stats.js",
+    "check:contrast": "node web-brand/tools/check-contrast.js",
+    "smoke": "node bin/kingcode.js \"say hi\""
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-agent-default-model": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent-spine-demo": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-app-boot": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-bash-local": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-code-runtime-worker-thread": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-compaction-basic": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials-local": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-fs-local": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-fs-observation-policy": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-headless": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm-deepseek": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-checkpoint-policy": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-projection": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings-file": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent-fork-in-process": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent-spawn-in-process": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-subprocess-local": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-token-meter": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tool-fs": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tool-subagent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tool-subagent-control": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tool-subagent-report": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tool-todo": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "commander": "^15.0.0"
+  }
+}

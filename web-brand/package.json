@@ -1,0 +1,27 @@
+{
+  "name": "kingcode-web-brand",
+  "version": "0.1.0",
+  "description": "KingCode Web UI 品牌层：苔径晨雾配色 + 标题 + favicon（不 fork 上游）",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./client": {
+      "default": "./client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "palette.js"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
