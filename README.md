@@ -118,13 +118,24 @@ cd win; .\build.ps1                    # 框架依赖，需目标机装 .NET 8 �
 
 **环境变量**：`KINGCODE_PORT`（默认 3081）、`KINGCODE_NODE`、`KINGCODE_DSH_ENTRY`（后两个用于自动定位失败时手工指路）。引擎日志在 `%LOCALAPPDATA%\KingCode\engine.log`。
 
-### ⚠️ 验证状态：这份代码从未在 Windows 上编译或运行过
+### 验证状态：编译验证过，运行未验证
 
-作者的开发机是 macOS，本机也没有 .NET SDK，因此 `win/` 下的 C# **第一次真正被编译就是在你的机器上**。与之对照，Mac 版的每个窗口状态、附着模式、渲染缺陷都是逐个截图与实测验过的。
+开发机是 macOS，所以做了交叉编译验证（.NET 8 起支持从 mac/Linux 编出 Windows GUI exe）。
 
-已经验证过的只有两件：`assets/KingCode.ico` 的二进制结构（`file(1)` 识别为 7 图标，每个条目的声明尺寸与内嵌 PNG 实际尺寸逐条比对一致）；以及 `profile/setup.sh`（macOS 版）实跑通过——`setup.ps1` 是它的直译，逻辑同构但未运行。
+**已验证**：
+- `dotnet build` 与 `dotnet publish -r win-x64` 均 **0 错误 0 警告**通过。
+- 产物是合法的 Windows GUI 程序：PE32+ / x86-64 / **子系统 = 2（GUI）**——这一位设错就会在启动时弹出控制台黑框，而它恰好是 ≤.NET 7 交叉编译会静默弄错的地方。
+- 图标真的嵌进去了：把 `assets/KingCode.ico` 的 7 个帧逐个拿特征字节去 exe 的资源节里比对，**7/7 命中**。
+- `assets/KingCode.ico` 自身的二进制结构（`file(1)` 识别为 7 图标，声明尺寸与内嵌 PNG 实际尺寸逐条一致）。
+- `profile/setup.sh`（macOS 版）实跑通过。
 
-**没验证的**：C# 能否编译、WebView2 初始化时序、Job Object 的 P/Invoke 结构体布局、node/dsh 路径探测在真实 Windows 上的命中率。第一次跑不通很正常，把报错发我。
+**仍未验证**（这些只有在真 Windows 上跑才知道）：
+- 运行期行为：WebView2 初始化时序、Job Object 的 P/Invoke 结构体布局在真实内核上是否被接受、窗口与菜单的实际观感。
+- node/dsh 路径探测在你的机器上是否命中（探测顺序是按调研的安装惯例写的，但没有真机样本）。
+- `profile/setup.ps1`（是 setup.sh 的直译，逻辑同构但未运行）。
+- 交叉编译产物在 Windows 上的实际启动。官方对 `EnableWindowsTargeting` 留过一句保留意见：该属性用于非 Windows 平台开发，**正式发布仍建议在 Windows 上构建**——所以你那边最好用 `build.ps1` 重新构建一次，而不是直接用我这边交叉编译出来的 exe。
+
+跑不通就把报错发我。定位失败时可用 `KINGCODE_NODE` / `KINGCODE_DSH_ENTRY` 手工指路。
 
 ### 实现里已按调研落实的几处（都是「写错就出问题」的点）
 

@@ -34,4 +34,15 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
   </ItemGroup>
 
+  <!-- WebView2 包的 targets 会把 Core / WinForms / **Wpf** 三个程序集一并
+       Reference 进来。我们只用 WinForms，而那份 Wpf 程序集依赖
+       WindowsBase 5.0，与 net8.0 的 4.0 撞版本，构建时报 MSB3277。
+       把它从引用列表里摘掉，警告消失且不影响功能。 -->
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)"
+                 Condition="'%(FileName)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
 </Project>
