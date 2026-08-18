@@ -44,10 +44,25 @@ enum KMark {
         lower.stroke()
     }
 
-    /// 生成一张应用图标位图：墨绿黑圆角底 + 纸色 K + 深赭下撇。
-    static func iconImage(size: CGFloat) -> NSImage {
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.lockFocus()
+    /// 按**精确像素尺寸**渲染一张应用图标位图。
+    ///
+    /// 刻意不用 `NSImage.lockFocus()`：它按当前显示器的 backing scale 出图，
+    /// 在 Retina 上会把 16pt 画成 32px，整套 iconset 全部翻倍——iconutil 会
+    /// 宽容地收下，图标看着也正常，但每个条目的实际尺寸都对不上名字。
+    /// 这里直接建定尺寸的 bitmap rep 再往里画，1 point = 1 pixel。
+    /// - Parameter px: 目标边长（像素）。
+    /// - Returns: 该尺寸的位图表示。
+    static func iconRep(px: Int) -> NSBitmapImageRep {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { fatalError("无法创建 \(px)×\(px) 位图") }
+        rep.size = NSSize(width: px, height: px)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        let size = CGFloat(px)
         let rect = NSRect(x: 0, y: 0, width: size, height: size)
         // macOS 图标惯例：四周留白，圆角方底
         let inset = size * 0.06
@@ -57,20 +72,20 @@ enum KMark {
                                   yRadius: body.width * 0.2237)
         Palette.ink.setFill()
         ground.fill()
-        // K 占内部约 62%，居中偏视觉重心
+        // K 占内部约 62%，居中
         let markSide = body.width * 0.62
         let markRect = NSRect(x: body.midX - markSide / 2,
                               y: body.midY - markSide / 2,
                               width: markSide, height: markSide)
         draw(in: markRect, stemColor: Palette.paper, armColor: Palette.accent2)
-        image.unlockFocus()
-        return image
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
     }
 
     /// 把各尺寸 PNG 写进 iconset 目录，供 iconutil 打包。
     static func writeIconset(to dir: URL) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let specs: [(name: String, px: CGFloat)] = [
+        let specs: [(name: String, px: Int)] = [
             ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
             ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
             ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
@@ -78,10 +93,7 @@ enum KMark {
             ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024),
         ]
         for spec in specs {
-            let image = iconImage(size: spec.px)
-            guard let tiff = image.tiffRepresentation,
-                  let rep = NSBitmapImageRep(data: tiff),
-                  let png = rep.representation(using: .png, properties: [:]) else {
+            guard let png = iconRep(px: spec.px).representation(using: .png, properties: [:]) else {
                 throw NSError(domain: "KingCode", code: 1,
                               userInfo: [NSLocalizedDescriptionKey: "无法生成 \(spec.name)"])
             }

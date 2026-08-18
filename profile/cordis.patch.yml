@@ -1,0 +1,20 @@
+# KingCode —— 基于 DeepSeek Harness 的编程智能体 profile
+# 补丁层：按 id 覆盖 bundle 里的插件配置
+- id: system-prompt
+  config:
+    persona: >-
+      You are KingCode, an expert coding agent powered by the {{model}} model.
+      Your working directory is {{cwd}}. You write clean, well-tested code,
+      explain your reasoning concisely, and always verify changes by running
+      tests or the code itself before declaring success. You communicate in
+      the same language the user uses.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-pro
+
+# 品牌层：节点半侧改 <title>/favicon/manifest，浏览器半侧叠苔径晨雾配色
+# （client-modules 扫到本包的 dsh.client 声明后自动 serve /plugins/<id>/client.js）
+- insert:
+    - id: kingcode-brand
+      name: 'kingcode-web-brand'

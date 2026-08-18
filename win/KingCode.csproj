@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>KingCode</AssemblyName>
+    <RootNamespace>KingCode</RootNamespace>
+    <Version>0.1.0</Version>
+    <Product>KingCode</Product>
+    <Description>KingCode —— 基于 DeepSeek Harness 的编程智能体</Description>
+
+    <!-- exe 在资源管理器/任务栏上的图标。注意这不会影响窗口标题栏与
+         Alt+Tab —— 那是 Form.Icon，另外在 MainForm 里设。 -->
+    <ApplicationIcon>assets\KingCode.ico</ApplicationIcon>
+
+    <!-- 在 macOS/Linux 上构建 WinForms 必须开，否则报 NETSDK1100；
+         在 Windows 上留着无害。官方说明：该属性用于非 Windows 平台开发，
+         正式发布仍建议在 Windows 上构建。 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- 单文件发布时把原生库一并自解压，WinForms 需要 -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WebView2：net8.0-windows 实际拿到的是包内 lib_manual/netcoreapp3.0
+         那份程序集（由包的 build/Common.targets 显式 Reference 进来），
+         不是 lib/net462。 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
+  </ItemGroup>
+
+</Project>

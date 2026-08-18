@@ -2,9 +2,11 @@
 
 基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）的编程智能体。dsh 是「一切皆插件」的 agent 运行时（Cordis 微内核），KingCode 不 fork 源码——只做**自己的组合树 + 自己的插件 + 自己的 bin**。
 
-## 两种形态
+## 形态
 
-### 1. CLI 一次性任务（本仓库）
+CLI、Web、Mac 客户端、Windows 客户端四种形态**共用同一棵 dsh 组合树**。
+
+### 1. CLI 一次性任务
 
 ```
 kingcode "跑一下测试并修复失败"
@@ -32,13 +34,16 @@ node bin/kingcode.js "介绍一下这个仓库"
 
 密钥解析优先级：进程环境变量 > `~/.dsh/.credentials.yaml`（0600）> 调用目录 `.env`。密钥永不写进 cordis.yml。
 
-### 2. Web UI（dsh profile + 品牌层，已就位）
+### 2. Web UI（dsh profile + 品牌层）
 
-`~/.dsh/profiles/kingcode/` 是一个 dsh profile：官方 web 全家桶（web UI + plan mode + 权限预设 + skills）上叠 KingCode 人格补丁（`cordis.patch.yml`）与品牌层。
+官方 web 全家桶（web UI + plan mode + 权限预设 + skills）上叠 KingCode 人格补丁与品牌层。profile 的权威副本在仓库的 `profile/` 下，用脚本装到 `$DSH_HOME`：
 
 ```bash
+./profile/setup.sh        # Windows 用 .\profile\setup.ps1
 dsh --profile kingcode --port 3081
 ```
+
+脚本幂等：重复跑只覆盖补丁层与重装品牌插件，不动会话与凭证。
 
 ## 品牌层 `web-brand/`
 
@@ -85,6 +90,57 @@ cp -R mac/build/KingCode.app /Applications/   # 想从聚焦搜索启动就装�
 3. **WKWebView 会缓存插件 bundle**。`/plugins/<id>/client.js` 路径不带版本号，改完品牌层重启引擎也看不到新的。首次加载用 `.reloadIgnoringLocalCacheData`，菜单的重新载入用 `reloadFromOrigin()`。
 4. **WebKit 与 Chromium 对 `mask` 简写解析不同**。`mask: url(...) center / contain no-repeat` 在 Chromium 正常，在 WebKit 里 `no-repeat` 丢失导致蒙版平铺，K 字标两侧露出相邻分块的竖笔，看起来像 `|K|`。**这个缺陷只在原生客户端里出现，浏览器里永远复现不了**——所以品牌层的蒙版一律写长写属性（`mask-image` / `mask-repeat` / `mask-position` / `mask-size`）。
 5. **`.fullSizeContentView` 会让窗口拖不动**。它把 WKWebView 铺到标题栏下面，拖拽区被网页吃掉——窗口挪不到扩展屏，这在多显示器上是致命的。只保留 `titlebarAppearsTransparent`：标题栏透出窗口底色、视觉上仍与内容连成一片，但它还是一条真正可抓的标题栏。
+
+## Windows 客户端
+
+`win/` 下是 WinForms + WebView2 的原生外壳，架构与 Mac 版对齐（探活 → 按需拉起 → 退出只收自己拉起的引擎）。
+
+```powershell
+# 1. 前置：Node.js、dsh、pnpm
+npm install -g @deepseek-ai/dsh pnpm
+
+# 2. 初始化 profile（写 %USERPROFILE%\.dsh\profiles\kingcode 并装品牌层）
+.\profile\setup.ps1
+
+# 3. 构建（需 .NET 8 SDK）
+cd win; .\build.ps1                    # 框架依赖，需目标机装 .NET 8 桌面运行时
+.\build.ps1 -SelfContained             # 自包含单文件，目标机无需装 .NET
+```
+
+| 文件 | 职责 |
+|---|---|
+| `Program.cs` | 入口；**第一件事是把自己加进 Job Object** |
+| `JobObject.cs` | 进程树兜底回收（P/Invoke） |
+| `ServerController.cs` | 引擎生命周期 + node/dsh 定位 |
+| `MainForm.cs` | WebView2 承载 + 菜单 |
+| `LaunchPanel.cs` / `KMark.cs` / `Palette.cs` | 启动页、K 字标、配色（与 Mac 版同源） |
+| `assets/KingCode.ico` | 7 尺寸图标，由 `assets/make-ico.py` 组装 |
+
+**环境变量**：`KINGCODE_PORT`（默认 3081）、`KINGCODE_NODE`、`KINGCODE_DSH_ENTRY`（后两个用于自动定位失败时手工指路）。引擎日志在 `%LOCALAPPDATA%\KingCode\engine.log`。
+
+### ⚠️ 验证状态：这份代码从未在 Windows 上编译或运行过
+
+作者的开发机是 macOS，本机也没有 .NET SDK，因此 `win/` 下的 C# **第一次真正被编译就是在你的机器上**。与之对照，Mac 版的每个窗口状态、附着模式、渲染缺陷都是逐个截图与实测验过的。
+
+已经验证过的只有两件：`assets/KingCode.ico` 的二进制结构（`file(1)` 识别为 7 图标，每个条目的声明尺寸与内嵌 PNG 实际尺寸逐条比对一致）；以及 `profile/setup.sh`（macOS 版）实跑通过——`setup.ps1` 是它的直译，逻辑同构但未运行。
+
+**没验证的**：C# 能否编译、WebView2 初始化时序、Job Object 的 P/Invoke 结构体布局、node/dsh 路径探测在真实 Windows 上的命中率。第一次跑不通很正常，把报错发我。
+
+### 实现里已按调研落实的几处（都是「写错就出问题」的点）
+
+- **回收进程树用 Job Object + `KILL_ON_JOB_CLOSE`，而不是 `Process.Kill(entireProcessTree)`**。后者的 Windows 实现是「先杀自己再枚举后代」，中间层进程在别的 job 里或权限不足时递归会提前断掉，孙进程成孤儿（dotnet/runtime#107992，修复排到 .NET 11）；而且它需要进程活着才能执行，崩溃路径完全不覆盖。做法是启动时**把自己加进 job**，后代自动继承成员身份，不存在「Start() 返回后再 Assign」的窗口期；job 句柄不可继承（否则崩溃时 KILL_ON_JOB_CLOSE 不触发）。
+- **直接 `node.exe <dsh 的 bin.js>`，不碰 `dsh.cmd`**。Windows 上没有 npm.exe/dsh.exe，走 .cmd 会隐式起一层 cmd.exe，进程树多一层、kill 直接子进程就留孤儿，还会撞上 cmd.exe 的参数解析问题（BatBadBut）。
+- **`CreateNoWindow` 必须与 `UseShellExecute=false` 成对**，单设无效；刻意不设 `WindowStyle`（.NET 8 前后行为不同）。
+- **PATH 是启动时快照**，用户装完 Node 不重启应用就读不到——所以额外并入注册表里的机器级/用户级 PATH。
+- **WebView2 的用户数据目录必须显式指定**：.NET 平台默认建在 exe 旁边，装进 Program Files 后会因权限失败。
+- **`Form.Icon` 要单独设**：`ApplicationIcon` 只管资源管理器/任务栏，窗口标题栏与 Alt+Tab 用的是前者，不设就是 WinForms 内置图标。
+- **没有 `Reload(ignoreCache)` 这种重载**，所以菜单的重新载入是「先 `ClearBrowsingDataAsync(DiskCache)` 再 Reload」——与 Mac 版踩过的插件缓存问题同源。
+
+### 上游对 Windows 的支持程度（客观情况）
+
+dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pwsh-sandbox`/`tool-pwsh` 两组行按 `process.platform` 互斥启用），`$DSH_HOME` 解析到 `%USERPROFILE%\.dsh`，模块兜底目录用 junction 而非 symlink（所以不需要管理员权限或开发者模式）。
+
+但要知道：**上游 README 从未提及 Windows**，也没有平台支持矩阵。他们的 CI 有 Windows 通道，可其中真正跑 dsh 二进制端到端冒烟的那条被显式标成 `allowFailure`，**不阻塞合并**。也就是说 Windows 是「能跑、有人在意，但不是被保证的路径」。
 
 ## 校验
 
