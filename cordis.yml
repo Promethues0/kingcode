@@ -152,6 +152,10 @@
 - id: kingcode-project-stats
   name: './plugins/project-stats.js'
 
+# 密评评估工具（与 mpe-assess preset 共用同一份实现；CLI 里全局可用）
+- id: mpe-tools
+  name: './presets/mpe-assess/mpe-tools.js'
+
 # 一次性任务驱动：startup 解析任务位置参数（需 bin 先 provideCmdline），
 # runner 建 agent → followup → 等静默 → 打印最终回答 → 按结果退出
 - id: kingcode-startup

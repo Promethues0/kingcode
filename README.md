@@ -154,6 +154,34 @@ dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pws
 
 但要知道：**上游 README 从未提及 Windows**，也没有平台支持矩阵。他们的 CI 有 Windows 通道，可其中真正跑 dsh 二进制端到端冒烟的那条被显式标成 `allowFailure`，**不阻塞合并**。也就是说 Windows 是「能跑、有人在意，但不是被保证的路径」。
 
+## 密评评估（基础技能 · 第一批）
+
+会话模式下拉里的「**密评评估**」预设——商用密码应用安全性评估（GB/T 39786）全流程，源自安小龙密评技能包的重造。安小龙形态下查表/算分/判定全靠提示词教模型做（打一次分 ≥6-10 轮对话，手算加权平均是幻觉重灾区）；KingCode 里确定性工作全部下沉为工具，目标 1-2 轮出结论。
+
+```
+presets/mpe-assess/
+├── preset.yml + agent.cordis.yml   # 会话预设（persona 铁律 + 全套编码工具 + 密评工具/技能）
+├── mpe-tools.js                    # 6 个工具（零 @deepseek-ai import，可随目录复制）
+├── lib/                            # 纯函数引擎：kb 查询 / 证据包解析 / D-A-K 预判 / 四级算分
+├── data/                           # KB1-KB4 结构化数据（50 指标/16 高风险/41 权重行/56 FAQ，AI 转换+全量核验）
+└── skills/mpe-assess/SKILL.md      # 方法论技能（S1+S4 收编，/mpe-assess 可显式调用）
+```
+
+| 工具 | 干什么 |
+|---|---|
+| `mpe_kb_indicator` | 指标查表：各级助动词/条款号/权重/取证要点（判定前必查，不背标准） |
+| `mpe_kb_high_risk` | 16 项高风险 + 8 条无缓解死条款 + 算法/协议黑名单 |
+| `mpe_kb_faq` | FAQ 口径检索；命中「无权威口径清单」时如实说查不到 |
+| `mpe_evidence_load` | mpe-evidence/1.0 证据包校验 + 审计红线 + 覆盖度三分 |
+| `mpe_judge` | 确定性 D/A/K 预判（黑名单/TLCP 六态/强度四态路由）+ 待确认清单 |
+| `mpe_score` | 四级算分 + 未测评上下界四数 + 高风险 veto + 结论（过程可复核） |
+
+**不许编造的边界**（数据与引擎双层守护）：结论阈值在公开材料中无权威数值——`scoring.json` 的 `threshold.value` 是 `null`，引擎在阈值缺失时如实输出 `indeterminate` 而不是偷偷用 60；证据强度四态铁律（no_permission/out_of_scope 一律「未测评」出区间，绝不写成结论）编码在引擎里。数据溯源见 `presets/mpe-assess/data/SOURCES.md`。
+
+安装：`./profile/setup.sh`（或 Windows `setup.ps1`）会把 `presets/` 下所有预设复制到 `$DSH_HOME/.agent-presets/`。CLI 侧同一份工具经 `cordis.yml` 的 `mpe-tools` 行全局可用。
+
+后续批次：密改执行（S2+S3：mpe_diff 前后对比/整改台账/交付包）、密评顾问（S0+S5）、服务器密码机技能。
+
 ## 校验
 
 ```bash

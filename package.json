@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node test/test-project-stats.js",
+    "test": "node test/test-project-stats.js && node test/test-mpe-lib.js && node test/test-mpe-data.js && node test/test-mpe-tools.js",
     "check:contrast": "node web-brand/tools/check-contrast.js",
     "smoke": "node bin/kingcode.js \"say hi\""
   },

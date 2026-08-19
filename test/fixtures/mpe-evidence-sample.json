@@ -1,0 +1,162 @@
+{
+  "schema": "mpe-evidence/1.0",
+  "collector": {
+    "name": "mpe-collect",
+    "version": "1.0.0",
+    "platform_family": "linux",
+    "guarantees": [
+      "只读采集，不修改被测系统",
+      "不向第三方外联",
+      "疑似私钥只报路径与权限位，绝不读取正文",
+      "网络探测需 --targets 与 --i-have-authorization 双闸门",
+      "全程命令审计",
+      "输出脱敏"
+    ]
+  },
+  "standard": {
+    "primary": "GB/T 39786-2021",
+    "technical_layers": ["物理和环境安全", "网络和通信安全", "设备和计算安全", "应用和数据安全"],
+    "management_aspects": ["管理制度", "人员管理", "建设运行", "应急处置"],
+    "key_management": "密钥管理",
+    "high_risk_guide": "商用密码应用安全性评估量化评估规则-高风险判定",
+    "tlcp": "GB/T 38636-2020"
+  },
+  "collection": {
+    "started_at": "2026-08-15T09:30:00+08:00",
+    "finished_at": "2026-08-15T09:41:22+08:00",
+    "duration_sec": 682,
+    "dry_run": false,
+    "timeout_sec": 10,
+    "cert_dirs": ["/etc/nginx/certs"],
+    "probe_enabled": true,
+    "probe_summary": "2 目标（10.10.1.5:443, 10.10.1.5:8443），双闸门齐备",
+    "target_file": "targets.txt",
+    "target_parse_errors": []
+  },
+  "domains": {
+    "host": {
+      "hostname": "app-server-01",
+      "system": "Linux",
+      "kernel_release": "4.19.90-24.4.v2101.ky10.x86_64",
+      "arch": "x86_64",
+      "is_root": false,
+      "euid": 1000,
+      "os_pretty_name": "Kylin Linux Advanced Server V10",
+      "xinchuang_os": true
+    }
+  },
+  "findings": [
+    {
+      "id": "E0001",
+      "layer": "设备和计算安全",
+      "indicator": "远程管理通道安全",
+      "clause": "6.3c/7.3c/8.3c/9.3c",
+      "title": "SSH 服务算法配置",
+      "strength": "direct",
+      "detail": "sshd 8.2p1，协议仅 SSH2；Ciphers aes256-ctr,aes192-ctr；MACs hmac-sha2-256；未启用国密算法套件"
+    },
+    {
+      "id": "E0002",
+      "layer": "网络和通信安全",
+      "indicator": "通信过程中重要数据的机密性",
+      "clause": "6.2c/7.2c/8.2c/9.2c",
+      "title": "业务端口 TLS 探测",
+      "strength": "direct",
+      "detail": "10.10.1.5:443 探测：tlcp verdict=not_supported_alert；TLS1.2/1.3 可用；检测到 TLS1.0 已启用（legacy 探测 state=accepted）",
+      "risk": {
+        "code": "5.2",
+        "name": "使用已被证实不安全的密码技术",
+        "scope": "全级别",
+        "mitigable": false,
+        "confirm_required": false
+      }
+    },
+    {
+      "id": "E0003",
+      "layer": "应用和数据安全",
+      "indicator": "重要数据存储机密性",
+      "clause": "7.4e/8.4e/9.4e",
+      "title": "数据库透明加密配置",
+      "strength": "no_permission",
+      "detail": "数据库配置目录 /etc/mysql 无读取权限（运行身份非 root），未能确认 TDE 状态"
+    },
+    {
+      "id": "E0004",
+      "layer": "应用和数据安全",
+      "indicator": "重要数据传输机密性",
+      "clause": "6.4c/7.4c/8.4c/9.4c",
+      "title": "内部服务间调用协议",
+      "strength": "indirect",
+      "detail": "10.10.1.5:8443 探测：tlcp verdict=inconclusive；进程列表见 java 进程监听但无法确认加密配置"
+    },
+    {
+      "id": "E0005",
+      "layer": "设备和计算安全",
+      "indicator": "系统资源访问控制信息完整性",
+      "clause": "7.3d/8.3d/9.3d",
+      "title": "证书签名算法",
+      "strength": "direct",
+      "detail": "/etc/nginx/certs/legacy.crt：签名算法 SHA-1 with RSA，密钥长度 RSA 1024 bit，有效期至 2027-01-01"
+    }
+  ],
+  "findings_by_layer": {
+    "网络和通信安全": ["E0002"],
+    "设备和计算安全": ["E0001", "E0005"],
+    "应用和数据安全": ["E0003", "E0004"]
+  },
+  "high_risk": [
+    {
+      "id": "E0002",
+      "layer": "网络和通信安全",
+      "indicator": "通信过程中重要数据的机密性",
+      "clause": "6.2c/7.2c/8.2c/9.2c",
+      "title": "业务端口 TLS 探测",
+      "strength": "direct",
+      "detail": "检测到 TLS1.0 已启用",
+      "risk": {
+        "code": "5.2",
+        "name": "使用已被证实不安全的密码技术",
+        "scope": "全级别",
+        "mitigable": false,
+        "confirm_required": false
+      }
+    }
+  ],
+  "manual_required": [
+    {
+      "id": "M-S1",
+      "layer": "通用要求",
+      "indicator": "定级与范围前置信息",
+      "clause": "-",
+      "level_requirement": "全级别",
+      "why_out_of_scope": "等级、范围、重要数据界定、投运时间须甲方书面提供",
+      "strength": "out_of_scope"
+    },
+    {
+      "id": "M-A4",
+      "layer": "应用和数据安全",
+      "indicator": "重要数据存储机密性",
+      "clause": "8.4e",
+      "level_requirement": "三级应",
+      "why_out_of_scope": "存储加密的密钥来源与调用方式须应用负责人说明",
+      "strength": "out_of_scope"
+    }
+  ],
+  "audit": {
+    "summary": {
+      "commands_executed": 87,
+      "commands_unavailable": 3,
+      "paths_read": 412,
+      "paths_denied": 9,
+      "network_probes": 2,
+      "domain_failures": 0,
+      "write_operations_on_target_system": 0,
+      "outbound_connections_to_third_parties": 0
+    },
+    "commands": [],
+    "paths": [],
+    "network": [],
+    "failures": []
+  },
+  "summary_md_chars": 6204
+}

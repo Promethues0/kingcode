@@ -51,6 +51,17 @@ cp "$REPO/profile/cordis.patch.yml" "$PROFILE/cordis.patch.yml"
 # 装品牌层。-w 是必需的：pnpm 会把 profile 目录视作 workspace root
 dsh plugin --profile kingcode add -w "$REPO/web-brand"
 
+# ── agent presets：把仓库里的预设装到用户预设根（幂等覆盖）─────────────────
+PRESET_ROOT="$DSH_HOME/.agent-presets"
+mkdir -p "$PRESET_ROOT"
+for preset_dir in "$REPO"/presets/*/; do
+  preset_id="$(basename "$preset_dir")"
+  rm -rf "$PRESET_ROOT/$preset_id"
+  cp -R "$preset_dir" "$PRESET_ROOT/$preset_id"
+  chmod -R u+rwX,go-rwx "$PRESET_ROOT/$preset_id"
+  echo "preset 已安装：$preset_id → $PRESET_ROOT/$preset_id"
+done
+
 echo
 echo "profile 就绪：$PROFILE"
 echo "启动：dsh --profile kingcode --port 3081"

@@ -1,0 +1,810 @@
+{
+  "_meta": {
+    "source": "KB2-高风险判定速查.md",
+    "converted": "2026-08-19",
+    "provenance_rule": "源文件通篇未出现「安恒整理，非标准原文」显式标注的节，故无条目因该标注被强制要求携带 provenance；但源文中 blockquote 编者按、「给顾问的实战提醒」等明显非指引原文的内容，凡收录均在 notes 中以 provenance: \"kb_editorial\" 标注，与指引/FAQ 原文引用区分。",
+    "authority": "《信息系统密码应用高风险判定指引》，中国密码学会密评联委会，2021 年 12 月（即 FAQ 中引用的《高风险判定指引（2021 版）》，为当前现行版本）",
+    "structure_note": "16 项构成：通用 3 项 + 物理和环境 1 项 + 网络和通信 3 项 + 设备和计算 2 项 + 应用和数据 5 项 + 密码应用管理 2 项（本文件按 GB/T 39786 标准层面名将「密码应用管理」两项分别归入「管理制度」与「建设运行」，见各条 layer_note）；没有独立的「密钥管理」层面高风险项——密钥管理问题以附录 A 形式挂在 5.3 之下触发（见 key_mgmt_hazards）。",
+    "normalization_note": "源文为速查笔记，各条安全问题第 1 项以「通用要求问题」「通用要求相关问题」等缩写指代同一含义，本文件统一展开为「存在第 5 章通用要求相关安全问题」；其余安全问题与缓解措施文本按源文转写，未增删实质内容。"
+  },
+  "conclusion_rule": {
+    "text": "按《量化评估规则》，测评结论「基本符合」的条件是：S ≥ 阈值 且 经风险评估发现没有高风险——两者是与关系。只要存在一条未缓解的高风险，无论量化得分多高，结论都只能是「不符合」。",
+    "threshold": {
+      "value": null,
+      "note": "GB/T 39786 配套规则原文未给出阈值数值；60 为业内口径，采用时须另行标注来源"
+    }
+  },
+  "usage_premises": [
+    {
+      "label": "判定内容构成",
+      "text": "本文件中判定内容由指标要求、适用范围、安全问题、可能的缓解措施和风险评价构成"
+    },
+    {
+      "label": "指标来源与兜底",
+      "text": "指标要求源自 GB/T 39786—2021 的部分指标，对于本文件未覆盖的其他指标，仍需核查本文件第 5 章通用要求中密码算法、密码技术、密码产品和密码服务相关安全问题是否存在"
+    },
+    {
+      "label": "不穷尽",
+      "text": "本文件无法涵盖密码应用的所有高风险安全问题，对于本文件未涉及但确实可能会对信息系统造成严重安全隐患的安全问题，应结合信息系统的实际情况对相关安全问题所引发的风险等级做出客观判断"
+    },
+    {
+      "label": "反向裁量",
+      "text": "在某些情况下，受限于具体场景的安全需求和各项条件，本文件给出的安全问题也可能不会导致信息系统面临较高安全风险，在信息系统密码应用的规划、建设、运行及测评时应结合具体场景进行合理判定"
+    }
+  ],
+  "usage_premises_note": {
+    "text": "第二条（指标来源与兜底）尤其重要：第 5 章通用要求（密码算法/技术/产品/服务）适用于所有指标——即使某条指标本身不在高风险清单里，只要它用了 MD5、TLS 1.0、没资质的密码服务，仍会通过 5.1/5.2/5.3 触发高风险。",
+    "provenance": "kb_editorial"
+  },
+  "items": [
+    {
+      "code": "5.1",
+      "layer": "通用要求",
+      "layer_note": null,
+      "indicator": "密码算法",
+      "indicator_requirement": "信息系统中使用的密码算法应符合法律、法规的规定和密码相关国家标准、行业标准的有关要求。",
+      "applicable_levels": [1, 2, 3, 4],
+      "applicable_levels_text": "所有级别",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "使用存在安全问题或安全强度不足的密码算法对重要数据进行保护，如 MD5、DES、SHA-1、RSA（不足 2048 比特）等"
+        },
+        {
+          "seq": 2,
+          "text": "使用安全性未知的密码算法，如自行设计的、未经安全性论证的密码算法"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": []
+    },
+    {
+      "code": "5.2",
+      "layer": "通用要求",
+      "layer_note": null,
+      "indicator": "密码技术",
+      "indicator_requirement": "信息系统中使用的密码技术应遵循密码相关国家标准和行业标准。",
+      "applicable_levels": [1, 2, 3, 4],
+      "applicable_levels_text": "所有级别",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "使用存在缺陷或有安全问题警示的密码技术，如 SSH 1.0、SSL 2.0、SSL 3.0、TLS 1.0"
+        },
+        {
+          "seq": 2,
+          "text": "使用安全性未知的密码技术，如自行设计的、未经安全性论证的密码通信协议"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": []
+    },
+    {
+      "code": "5.3",
+      "layer": "通用要求",
+      "layer_note": null,
+      "indicator": "密码产品和密码服务",
+      "indicator_requirement": "信息系统中使用的密码产品、密码服务应符合法律法规的相关要求。",
+      "applicable_levels": [1, 2, 3, 4],
+      "applicable_levels_text": "所有级别",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "使用自实现且未提供安全性证据的密码产品"
+        },
+        {
+          "seq": 2,
+          "text": "使用的密码产品存在高危安全漏洞，如存在 Heartbleed 漏洞的 OpenSSL"
+        },
+        {
+          "seq": 3,
+          "text": "密码产品的使用不满足其安全运行的前提条件（如其安全策略或使用手册说明的部署条件）"
+        },
+        {
+          "seq": 4,
+          "text": "使用的密码服务，其密码服务提供商不具有相关资质"
+        },
+        {
+          "seq": 5,
+          "text": "存在可能会对密钥管理造成严重安全隐患的安全问题（见附录 A，即本文件 key_mgmt_hazards）"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": [
+        {
+          "text": "5.3 c)5) 是整份指引杀伤力最大的入口：所有密钥管理的严重问题都从这里变成高风险，而这条没有缓解措施。做调研时必须把附录 A 七个环节逐条问一遍。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "6.1",
+      "layer": "物理和环境安全",
+      "layer_note": null,
+      "indicator": "身份鉴别",
+      "indicator_requirement": "采用密码技术进行物理访问身份鉴别，保证重要区域进入人员身份的真实性。",
+      "applicable_levels": [2, 3, 4],
+      "applicable_levels_text": "第二级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用动态口令机制、基于对称密码算法或密码杂凑算法的 MAC 机制、基于公钥密码算法的数字签名机制等密码技术对重要区域进入人员进行身份鉴别"
+        },
+        {
+          "seq": 3,
+          "text": "人员身份真实性的密码技术实现机制不正确或无效"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "基于生物识别技术（如指纹等）保证人员身份真实性，可酌情降低风险等级",
+          "covers": [2],
+          "covers_note": "源文明示：仅覆盖「未采用」情形（安全问题 2）",
+          "conditions": [
+            "基于生物识别技术（如指纹等）保证人员身份真实性"
+          ]
+        },
+        {
+          "text": "重要区域出入口配备专人值守并进行登记，且采用视频监控系统进行实时监控等，可酌情降低风险等级",
+          "covers": [2, 3],
+          "covers_note": "源文明示：同时覆盖「未采用」（安全问题 2）和「实现机制不正确或无效」（安全问题 3）两种情形",
+          "conditions": [
+            "重要区域出入口配备专人值守并进行登记",
+            "采用视频监控系统进行实时监控"
+          ]
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；「上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险」的统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": [
+        {
+          "text": "本条没有「密码产品认证证书」这一安全问题项。两条缓解措施覆盖的情形不同，引用时必须逐条核对适用条件。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "7.1",
+      "layer": "网络和通信安全",
+      "layer_note": null,
+      "indicator": "身份鉴别",
+      "indicator_requirement": "采用密码技术对通信实体进行身份鉴别（第四级为双向身份鉴别），保证通信实体身份的真实性。",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用 MAC 机制、数字签名机制等密码技术对通信实体进行身份鉴别"
+        },
+        {
+          "seq": 3,
+          "text": "通信实体身份真实性的密码技术实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "采用的密码产品未获得商用密码认证机构颁发的商用密码产品认证证书（适用时）"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": []
+    },
+    {
+      "code": "7.2",
+      "layer": "网络和通信安全",
+      "layer_note": null,
+      "indicator": "通信过程中重要数据的机密性",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用密码技术的加解密功能保护通信中重要数据机密性"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "在「应用和数据安全」层面针对信息系统所有需要保护的重要数据传输采用符合要求的密码技术进行机密性保护，且加密后的数据流能够覆盖网络通信信道，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "在「应用和数据安全」层面针对信息系统所有需要保护的重要数据传输采用符合要求的密码技术进行机密性保护（注意是「所有」）",
+            "加密后的数据流能够覆盖网络通信信道"
+          ]
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": [
+        {
+          "text": "7.2 与 9.2 互为对方的缓解措施，但条件不同、不能循环互抵：7.2 要求应用层对所有重要数据加密且数据流覆盖信道；9.2 要求网络层信道经评估无高风险。两条同时不达标时，不能互相引用来双双降级。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "7.3",
+      "layer": "网络和通信安全",
+      "layer_note": null,
+      "indicator": "安全接入认证",
+      "indicator_requirement": "采用密码技术对从外部连接到内部网络的设备进行接入认证，确保接入设备身份的真实性。",
+      "applicable_levels": [4],
+      "applicable_levels_text": "仅第四级",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用 MAC/数字签名等密码技术对外部接入设备做接入认证"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": []
+    },
+    {
+      "code": "8.1",
+      "layer": "设备和计算安全",
+      "layer_note": null,
+      "indicator": "身份鉴别",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用动态口令机制/MAC 机制/数字签名机制等密码技术对登录设备的用户进行身份鉴别"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "基于特定识别技术（如设备指纹、生物指纹等）保证用户身份真实性，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "基于特定识别技术（如设备指纹、生物指纹等）保证用户身份真实性"
+          ]
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": [
+        {
+          "text": "本条没有第 4) 条「密码产品认证证书」安全问题（与 7.1/9.1 不同）。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "8.2",
+      "layer": "设备和计算安全",
+      "layer_note": null,
+      "indicator": "远程管理通道安全",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "远程管理设备时未采用密码技术建立安全的信息传输通道"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "通过不可控网络环境进行远程管理，且鉴别数据以明文形式传输"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "搭建了与业务网络物理隔离、采取相应安全防护措施的专用管理网络（如带外管理网络）进行远程管理，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "专用管理网络与业务网络物理隔离",
+            "专用管理网络采取相应安全防护措施",
+            "通过该专用管理网络（如带外管理网络）进行远程管理"
+          ]
+        },
+        {
+          "text": "在「网络和通信安全」层面使用 SSL VPN 网关、IPSec VPN 网关等设备建立专用的集中管理通道，且采用的密码技术符合要求，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "在「网络和通信安全」层面使用 SSL VPN 网关、IPSec VPN 网关等设备建立专用的集中管理通道",
+            "采用的密码技术符合要求"
+          ]
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": []
+    },
+    {
+      "code": "9.1",
+      "layer": "应用和数据安全",
+      "layer_note": null,
+      "indicator": "身份鉴别",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用动态口令/MAC/数字签名等密码技术对登录用户身份鉴别"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "基于特定识别技术（如设备指纹、生物指纹、第三方身份鉴别服务等）保证用户身份真实性，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "基于特定识别技术（如设备指纹、生物指纹、第三方身份鉴别服务等）保证用户身份真实性"
+          ]
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": []
+    },
+    {
+      "code": "9.2",
+      "layer": "应用和数据安全",
+      "layer_note": null,
+      "indicator": "重要数据传输机密性",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用密码技术的加解密功能保护传输中重要数据机密性"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "在「网络和通信安全」层面通信实体间采用符合要求的密码技术建立网络通信信道，且网络通信信道经评估无高风险，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "在「网络和通信安全」层面通信实体间采用符合要求的密码技术建立网络通信信道",
+            "该网络通信信道经评估无高风险"
+          ]
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": [
+        {
+          "text": "7.2 与 9.2 互为对方的缓解措施，但条件不同、不能循环互抵：7.2 要求应用层对所有重要数据加密且数据流覆盖信道；9.2 要求网络层信道经评估无高风险。两条同时不达标时，不能互相引用来双双降级。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "9.3",
+      "layer": "应用和数据安全",
+      "layer_note": null,
+      "indicator": "重要数据存储机密性",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用密码技术的加解密功能保护存储中重要数据机密性"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": [
+        {
+          "text": "技术层面最难缠的一条：存储加密改造代价最高、周期最长，而且没有任何缓解措施可用。项目一开始就要把它排进第一批，不能拖。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "9.4",
+      "layer": "应用和数据安全",
+      "layer_note": null,
+      "indicator": "重要数据存储完整性",
+      "indicator_requirement": null,
+      "indicator_requirement_note": "源文（KB2 速查）未摘录本条指标要求原文",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "未采用 MAC 机制/数字签名机制等密码技术保护存储中重要数据完整性"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "应用系统具有符合要求的身份鉴别措施，保证只有授权人员才能访问重要数据，且定期对重要数据进行备份，可酌情降低风险等级",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "应用系统具有符合要求的身份鉴别措施，保证只有授权人员才能访问重要数据",
+            "定期对重要数据进行备份"
+          ],
+          "conditions_note": "源文明示：两个条件是并列的，缺一不可"
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": []
+    },
+    {
+      "code": "9.5",
+      "layer": "应用和数据安全",
+      "layer_note": null,
+      "indicator": "不可否认性",
+      "indicator_requirement": "在可能涉及法律责任认定的应用中，采用密码技术提供数据原发证据和数据接收证据，实现数据原发行为的不可否认性和数据接收行为的不可否认性。",
+      "applicable_levels": [3, 4],
+      "applicable_levels_text": "第三级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "存在第 5 章通用要求相关安全问题"
+        },
+        {
+          "seq": 2,
+          "text": "在可能涉及法律责任认定的应用中，未采用基于公钥密码算法的数字签名机制等密码技术实现不可否认性"
+        },
+        {
+          "seq": 3,
+          "text": "实现机制不正确或无效"
+        },
+        {
+          "seq": 4,
+          "text": "密码产品未获认证证书（适用时）"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": [
+        {
+          "text": "判定前先确认前提：该指标以「可能涉及法律责任认定的应用」为前提。系统若不存在此类应用，属于不适用，不进入高风险判定——但「不适用」需要论证，不能想当然。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "10.1",
+      "layer": "管理制度",
+      "layer_note": "源文层面名为「密码应用管理」；本条指标（具备密码应用安全管理制度）按 GB/T 39786 标准层面名归入「管理制度」",
+      "indicator": "具备密码应用安全管理制度",
+      "indicator_requirement": "具备密码应用安全管理制度，包括密码人员管理、密钥管理、建设运行、应急处置、密码软硬件及介质管理等制度。",
+      "applicable_levels": [2, 3, 4],
+      "applicable_levels_text": "第二级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "未建立任何与密码应用安全管理活动相关的管理制度，或相关管理制度不适用于当前被测信息系统"
+        }
+      ],
+      "mitigations": [],
+      "mitigable": false,
+      "risk_statement": "上述任一安全问题一旦被威胁利用后，可能会导致信息系统面临高风险。",
+      "notes": [
+        {
+          "text": "投入产出比最高的一条：写制度几乎不花钱，但没有制度直接高风险，项目启动第一周就应该解决掉。注意第二个触发条件——套模板套错系统的制度也算命中。",
+          "provenance": "kb_editorial"
+        }
+      ]
+    },
+    {
+      "code": "10.2",
+      "layer": "建设运行",
+      "layer_note": "源文层面名为「密码应用管理」；本条指标（制定密码应用方案）按 GB/T 39786 标准层面名归入「建设运行」",
+      "indicator": "制定密码应用方案",
+      "indicator_requirement": "依据密码相关标准和密码应用需求，制定密码应用方案。",
+      "applicable_levels": [2, 3, 4],
+      "applicable_levels_text": "第二级及以上",
+      "security_problems": [
+        {
+          "seq": 1,
+          "text": "信息系统未制定密码应用方案，或密码应用方案未通过评审"
+        }
+      ],
+      "mitigations": [
+        {
+          "text": "如被测系统通过测评发现不存在高风险安全问题，可酌情降低风险等级。",
+          "covers": null,
+          "covers_note": "源文未说明该缓解措施的覆盖面差异",
+          "conditions": [
+            "被测系统通过测评发现不存在高风险安全问题"
+          ],
+          "conditions_note": "全篇唯一的「以整体测评结果反向豁免」（源表标注「有（1 条，特殊）」）：其他地方都干净了，缺方案这条可以酌情降级；但只要别处还有高风险，这条也跟着一起算"
+        }
+      ],
+      "mitigable": true,
+      "risk_statement": null,
+      "risk_statement_note": "源文（KB2 速查）未摘录本条风险评价原文；统一表述在源文中仅明确适用于八项无缓解条款",
+      "notes": []
+    }
+  ],
+  "key_mgmt_hazards": {
+    "trigger": "5.3c5",
+    "trigger_note": "触发路径：命中下列任一问题 → 命中 5.3 c)5) → 5.3 无缓解措施 → 高风险。附录 A 在指引中为资料性附录。",
+    "scope_quote": "密钥管理包括密钥的产生、分发、存储、使用、更新、归档、撤销、备份、恢复和销毁等环节。",
+    "hazards": [
+      {
+        "seq": "a",
+        "stage": "密钥产生",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "未采用通过认证的随机数发生器生成密钥、派生密钥或密钥协商过程中的随机值，且无公开文献和证据证明其合理性与正确性"
+          },
+          {
+            "seq": 2,
+            "text": "密钥在不可控的环境中生成"
+          },
+          {
+            "seq": 3,
+            "text": "密钥协商之前或协商过程中没有验证对方身份真实性"
+          }
+        ]
+      },
+      {
+        "seq": "b",
+        "stage": "密钥分发",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "使用没有访问控制机制的存储介质（如普通信封、普通 U 盘）传输明文密钥，且管理制度无法保证分发安全"
+          },
+          {
+            "seq": 2,
+            "text": "密钥在不可控环境中分发时，未使用密码技术保护密钥的机密性和完整性"
+          }
+        ]
+      },
+      {
+        "seq": "c",
+        "stage": "密钥存储、备份和归档",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "密钥（除公钥外）以明文形式存储/备份/归档在不可控环境中，且可被非授权访问、使用、泄露、修改和替换"
+          },
+          {
+            "seq": 2,
+            "text": "公钥存储/备份/归档在不可控环境中，且可被非授权修改和替换"
+          },
+          {
+            "seq": 3,
+            "text": "用于加密密钥的口令以明文形式存储，或复杂度小于 10¹²"
+          }
+        ]
+      },
+      {
+        "seq": "d",
+        "stage": "密钥使用",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "多实体可用密钥的场景下缺乏使用控制机制"
+          },
+          {
+            "seq": 2,
+            "text": "对称密钥因使用不当导致泄露"
+          },
+          {
+            "seq": 3,
+            "text": "公钥与实体之间无任何关联关系"
+          },
+          {
+            "seq": 4,
+            "text": "公钥与实体用 PKI 关联但使用前未验证公钥有效性或验证机制不完备"
+          },
+          {
+            "seq": 5,
+            "text": "未按密钥用途正确使用"
+          }
+        ]
+      },
+      {
+        "seq": "e",
+        "stage": "密钥更新",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "未建立密钥已泄露或存在泄露风险时的密钥更新机制"
+          }
+        ]
+      },
+      {
+        "seq": "f",
+        "stage": "密钥销毁和撤销",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "不具备应急或按需销毁/撤销密钥的机制"
+          },
+          {
+            "seq": 2,
+            "text": "未按设定机制进行销毁/撤销"
+          }
+        ]
+      },
+      {
+        "seq": "g",
+        "stage": "密钥恢复",
+        "problems": [
+          {
+            "seq": 1,
+            "text": "密钥在恢复使用时没有鉴别机制，可被导入到其他系统中"
+          }
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "text": "现场最高频命中的三条：c)① 私钥明文躺在配置文件或磁盘上、c)③ 保护密钥的口令是弱口令、e)① 密钥从来不换也没有换的机制。这三条都直接是高风险，而且都没有缓解措施。",
+        "provenance": "kb_editorial"
+      }
+    ]
+  },
+  "faq_notes": [
+    {
+      "question": "缓解措施能改什么？",
+      "ruling": "经评估确认有效的缓解措施原则上可以酌情降低风险等级；因此导致风险等级改变的，可能造成测评结论发生改变，但测评分数仍保持不变",
+      "source": "FAQ 32.1"
+    },
+    {
+      "question": "指引没给缓解措施的项，能用「我们管理很严」来缓解吗？",
+      "ruling": "不能直接依据「采用了严格的管理措施」来缓解风险；面向互联网且不支持改造的，涉及风险建议客观评估",
+      "source": "FAQ 32.2"
+    },
+    {
+      "question": "应用层身份鉴别能弥补网络层的分数吗？",
+      "ruling": "不能弥补分数（测评对象不同，无法在报告 5.1 小节做结果修正）；但风险可以双向缓解——网络层设备身份能表征应用层客户端身份的可缓解应用层风险，反之亦然；被缓解的一方仍判「不符合」",
+      "source": "FAQ 33"
+    },
+    {
+      "question": "不涉高风险的指标用了高风险算法怎么办？",
+      "ruling": "某指标对应的测评对象即便不采用密码保护本身也不形成高风险的，即使使用了高风险算法/技术/产品，建议仍按原来的风险等级判定——「使用的密码算法、技术或产品本身存在的风险等级，不等同于指标项的风险等级」",
+      "source": "FAQ 35"
+    }
+  ],
+  "no_mitigation_codes": ["5.1", "5.2", "5.3", "7.1", "7.3", "9.3", "9.5", "10.1"],
+  "blacklists": {
+    "algorithms": [
+      { "name": "MD5" },
+      { "name": "DES" },
+      { "name": "SHA-1" },
+      {
+        "name": "RSA",
+        "max_insecure_bits": 2047,
+        "note": "源文为「RSA（不足 2048 比特）」，即模长小于 2048 比特视为强度不足"
+      }
+    ],
+    "protocols": [
+      { "name": "SSH 1.0" },
+      { "name": "SSL 2.0" },
+      { "name": "SSL 3.0" },
+      { "name": "TLS 1.0" }
+    ],
+    "note": "两份清单取自 5.1/5.2 安全问题原文的「如 … 等」列举，非穷尽；「安全性未知（自行设计的、未经安全性论证的）密码算法/密码通信协议」同样分别命中 5.1/5.2。"
+  }
+}
