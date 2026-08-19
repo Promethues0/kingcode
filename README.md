@@ -56,11 +56,31 @@ dsh --profile kingcode --port 3081
 | `client.js`（浏览器半侧） | 91 个 `--dsw-*` token 覆盖（亮/暗双套）+ 藏掉 deepseek 字标与鲸鱼、换 K 标与 KingCode 字样 | `ctx.theme.overrideTokens()` + 注入 `<style>` |
 | `tools/check-contrast.js` | WCAG 对比度 + 红绿色弱（Machado 1.0）ΔE 守卫 | — |
 
-**改配色只改一处**：`client.js` 顶部的 `P` 常量块（亮色 15 个 + 暗色 14 个）。改完跑：
+**配色的源头是一处，但派生产物不止一处。** `client.js` 顶部的 `P` 常量块
+（亮色 15 个 + 暗色 14 个）是 Web 侧唯一事实源，`check-contrast.js` 直接从它
+抽取——守卫和配色永远不会各说各话。但**原生端与二进制图标是复制过去的，不会
+自己跟着变**，改完 `P` 必须依次过一遍：
 
 ```bash
-node web-brand/tools/check-contrast.js
+node web-brand/tools/check-contrast.js          # 1. 守卫先过（不达标直接退 1）
+# 2. 手工同步三份复制品：
+#    web-brand/index.js  的 INK / PAPER / ACCENT2（favicon.svg 自绘用）
+#    mac/Sources/Palette.swift
+#    win/Palette.cs
+cd mac && ./build.sh                            # 3. 重建 Mac（顺带出新 iconset）
+./build/KingCode.app/Contents/MacOS/KingCode --make-iconset /tmp/ico-set
+# 4. 补 24/48 两档（iconset 没有），再组装 Windows 图标：
+sips -Z 24 /tmp/ico-set/icon_256x256.png --out /tmp/24.png
+sips -Z 48 /tmp/ico-set/icon_256x256.png --out /tmp/48.png
+python3 win/assets/make-ico.py win/assets/KingCode.ico \
+  /tmp/ico-set/icon_16x16.png /tmp/24.png /tmp/ico-set/icon_32x32.png /tmp/48.png \
+  /tmp/ico-set/icon_32x32@2x.png /tmp/ico-set/icon_128x128.png /tmp/ico-set/icon_256x256.png
 ```
+
+**`win/assets/KingCode.ico` 是最容易漏的一个**——它是二进制，`git diff` 看不出
+颜色变了没有，守卫也管不到（守卫只读 `P`）。字节蓝那批就漏了：Web 三端都换完
+推送了，`.ico` 里还是上一版的墨绿黑 `#262B24` + 深赭 `#B97B45`。校验办法是解出
+每帧数主色，别靠肉眼看图标缩略图。
 
 **改品牌文案**：`client.js` 的 `BRAND` 块（wordmark / headline 两个字符串）。
 
