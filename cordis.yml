@@ -22,7 +22,16 @@
       - id: deepseek-v4-flash
         contextWindow: 128000
 
-# headless runner 经 agentDefaultModel.currentSelection() 取默认模型
+# 多厂商适配器（Anthropic / OpenAI / OpenAI 兼容网关）。
+# **必须挂**：agent-default-model 的选择来自用户级 settings.yaml，而它由
+# Web UI 的模型选择器写入——只挂 deepseek 适配器的话，用户在 Web 里选了
+# Claude，CLI 就会报 NO_ADAPTER。路由与模型目录由 settings.yaml 的
+# `llm-pi-ai:` 节提供，这里不写死。
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+
+# runner 经 agentDefaultModel.currentSelection() 取默认模型；
+# 该值会被用户级 settings.yaml 覆盖（设置层优先于组合层）
 - id: agent-default-model
   name: '@deepseek-ai/dsh-agent-default-model'
   config:
@@ -148,8 +157,8 @@
 - id: kingcode-startup
   name: './plugins/startup.js'
 
-- id: headless-runner
-  name: '@deepseek-ai/dsh-headless'
+- id: kingcode-runner
+  name: './plugins/runner.js'
   inject: [headlessStartup]
   config:
     task: !!js ctx.headlessStartup.task

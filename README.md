@@ -21,6 +21,7 @@ kingcode "跑一下测试并修复失败"
 | `bin/kingcode.js` | 进程入口：fail-loud → 读 `.env` → `provideCmdline`（参数+退出请求）→ `boot()` 挂载组合树 |
 | `cordis.yml` | 组合树：每行一个插件 `{id, name, config}`，这就是 KingCode 的「配方」 |
 | `plugins/startup.js` | 解析任务位置参数与 `--help`，发布 `headlessStartup` 服务 |
+| `plugins/runner.js` | 一次性任务驱动：建 agent → followup → 等静默 → 打印 → 定退出码 |
 | `plugins/project-stats.js` | 自定义工具示例：`project_stats` 按扩展名统计项目文件 |
 
 **首次使用**：
@@ -161,7 +162,9 @@ npm run check:contrast # 配色的 WCAG + 色弱守卫
 npm run smoke         # 无钥烟测：应恰好死在 MISSING_CREDENTIAL
 ```
 
-`npm test` 直接拿 `defineTool` 的定义驱动 `execute`，不起 agent 也不调模型，所以没有 API key 也能跑。期望值由测试里的 `FIXTURE` 清单推导而非手写常量——第一版手算样本文件数算错了，报了 5 个假失败。
+`npm test` 直接拿 `defineTool` 的定义驱动 `execute`，不起 agent 也不调模型，所以没有 API key 也能跑。
+
+**`npm run smoke` 会真的发一次模型请求**（如果凭证可用）——它验证的是「组合树能挂起来并走到模型边界」，不是离线检查。没有凭证时会停在 `MISSING_CREDENTIAL`；有凭证时会实际调用一次。期望值由测试里的 `FIXTURE` 清单推导而非手写常量——第一版手算样本文件数算错了，报了 5 个假失败。
 
 ### 配色是怎么定的
 
@@ -194,6 +197,8 @@ npm run smoke         # 无钥烟测：应恰好死在 MISSING_CREDENTIAL
 
 ## 上游生态须知（踩过的坑）
 
+- **CLI 的默认模型会被 Web UI 的选择覆盖**：`agent-default-model` 行的 config 属于组合层，而用户级 `$DSH_HOME/settings.yaml` 的同名节优先级更高——你在 Web UI 里选了 Claude，CLI 也会跟着用。所以 CLI 的 `cordis.yml` **必须挂 `llm-pi-ai` 多厂商适配器**，否则会报 `NO_ADAPTER: no adapter registered for provider "anthropic"`。这是两个形态共享一份用户设置的必然结果，不是 bug。
+
 - **npm dist-tag**：`@deepseek-ai/dsh-*` 库包的 `latest` 标签滞后，**装 `@next`** 才是与 CLI 对齐的 `0.1.0-rc.6` 版本线
 - **Loader 插件必须具名导出**（`export const name/inject` + `export function apply`），default export 会静默丢 `inject`
 - `cordis.yml` 的 `!!js` 标量是 dsh include 的 YAML 方言，普通 YAML 解析器读不了
@@ -203,7 +208,7 @@ npm run smoke         # 无钥烟测：应恰好死在 MISSING_CREDENTIAL
 
 ## 路线图（可选下一步）
 
-- [ ] 自写 runner 替换 `@deepseek-ai/dsh-headless`（错误前缀现在还是 `dsh:`）
+- [x] 自写 runner 替换 `@deepseek-ai/dsh-headless` —— 诊断前缀已是 `kingcode:`，且核心服务缺失时改为响亮报错（上游是静默 return，进程会挂着不退、看起来像卡死）
 - [ ] `agent-spine-demo` 展开为自组正式 bundle（demo 包非产品 API）
 - [ ] 交互式 TUI 形态（上游生态有 `github:deepseek-harness/turtle-ui` 可参考）
 - [ ] 发布 `@kingcode/bundle` 到 npm，支持 `dsh plugin add` 安装进任意 profile（仓库加 `dsh-plugin` topic）
