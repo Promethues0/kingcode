@@ -70,8 +70,10 @@ const pairs = [
   ['亮·说明 faint / surface', P.faint, P.surface, 3],
   ['亮·纸色字 @ accent 钮', P.surface, P.accent, 4.5],
   ['亮·纸色字 @ ink 主钮', P.surface, P.ink, 4.5],
+  // danger 按正文标准（错误信息必须能读）；good/warn 是图标与徽标用色，按 ≥3。
+  // 三者同时要过下面的色弱 ΔE≥16——那条比对比度更容易被忽略。
   ['亮·danger / surface', P.danger, P.surface, 4.5],
-  ['亮·good / surface', P.good, P.surface, 4.5],
+  ['亮·good / surface', P.good, P.surface, 3],
   ['亮·warn / surface', P.warn, P.surface, 3],
   ['暗·正文 dText / dBase', P.dText, P.dBase, 4.5],
   ['暗·正文 dText / dL3', P.dText, P.dL3, 4.5],
@@ -90,28 +92,22 @@ for (const [label, fg, bg, min] of pairs) {
 
 // 语义色两两必须在色觉缺陷下仍可分辨；success↔error 是代价最高的一对。
 //
-// 亮色四色（ink/accent/danger/good/warn）继承自 race-calendar 的「苔径晨雾」
-// 已定板——那套值经过用户自己的 WCAG + 色弱评审并记录 good↔danger ΔE≈16。
-// 本工具用 CIE76 + Machado 1.0，与当时算法不同，绿弱一项算出 14.1。
-// 继承值只报 WARN 不判失败（不替用户改他已评审的板），本项目新造的暗色值
-// 则必须硬达标。
+// 这里**没有豁免**：整套配色（含亮色）都是本项目选的，就都按同一标准硬校验。
+// 早先有过一条「继承自已定板只报 WARN」的豁免，配色换成字节蓝后它就过期了，
+// 却仍在把一条 ΔE=2.1 的真失败伪装成提示——豁免比缺陷更危险，已删除。
 console.log('\n— 红绿色弱可辨性（Machado 1.0，ΔE 需 ≥ 16）—')
-let warned = 0
 const semantic = [
-  ['亮', { danger: P.danger, good: P.good, accent: P.accent, warn: P.warn }, true],
-  ['暗', { danger: P.dDanger, good: P.dGood, accent: P.dAccent, warn: P.dWarn }, false],
+  ['亮', { danger: P.danger, good: P.good, accent: P.accent, warn: P.warn }],
+  ['暗', { danger: P.dDanger, good: P.dGood, accent: P.dAccent, warn: P.dWarn }],
 ]
-for (const [mode, s, inherited] of semantic) {
+for (const [mode, s] of semantic) {
   for (const [x, y] of [['good', 'danger'], ['danger', 'accent'], ['good', 'accent'], ['danger', 'warn']]) {
     for (const [cvd, m] of [['强红弱', PROTAN], ['强绿弱', DEUTAN]]) {
       const v = deltaE(simulate(s[x], m), simulate(s[y], m))
-      const line = `${v.toFixed(1).padStart(5)} (需 16)  ${mode}·${cvd} ${x}↔${y}`
-      if (v >= 16) console.log(`OK   ${line}`)
-      else if (inherited) { warned++; console.log(`WARN ${line}  ← 继承自已定板，不判失败`) }
-      else check(false, line)
+      check(v >= 16, `${v.toFixed(1).padStart(5)} (需 16)  ${mode}·${cvd} ${x}↔${y}`)
     }
   }
 }
 
-console.log(`\n${failed === 0 ? '新造值全部达标' : `未达标 ${failed} 项`}${warned > 0 ? `（继承值 ${warned} 项提示）` : ''}`)
+console.log(`\n${failed === 0 ? '全部达标' : `未达标 ${failed} 项`}`)
 process.exit(failed === 0 ? 0 : 1)

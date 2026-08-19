@@ -1,4 +1,4 @@
-// KingCode 原生客户端配色 —— 苔径晨雾大地色系。
+// KingCode 原生客户端配色 —— 字节蓝（Arco Design 色阶）。
 // 与 web-brand/client.js 顶部的 P 常量块同源；改色两边一起改，
 // 并跑 `node web-brand/tools/check-contrast.js` 复验。
 import AppKit
@@ -12,21 +12,21 @@ enum Palette {
     }
 
     // 亮色
-    static let ink = hex(0x262B24)      // 墨绿黑
-    static let muted = hex(0x6A6B61)    // 岩灰
-    static let surface = hex(0xFCFBF7)  // 纸底（浅）
-    static let paper = hex(0xF1EFE7)    // 纸底
-    static let accent = hex(0x8F5127)   // 深赭
-    static let accent2 = hex(0xB97B45)  // 深赭渐变亮端
-    static let danger = hex(0x963C4A)
+    static let ink = hex(0x1D2129)      // Arco gray-9
+    static let muted = hex(0x666F7A)    // 三级文字
+    static let surface = hex(0xFFFFFF)  // 最外层
+    static let paper = hex(0xF2F3F5)    // Arco gray-2
+    static let accent = hex(0x165DFF)   // Arco primary
+    static let accent2 = hex(0x4080FF)  // Arco blue-5
+    static let danger = hex(0xA1151E)
 
     // 暗色（夜径）
-    static let dBase = hex(0x191C18)
-    static let dText = hex(0xEDEBE1)
-    static let dText3 = hex(0x94958A)
-    static let dAccent = hex(0xC08850)
-    static let dAccent2 = hex(0xD19A62)
-    static let dDanger = hex(0xCE7280)
+    static let dBase = hex(0x17171A)
+    static let dText = hex(0xF6F6F6)
+    static let dText3 = hex(0x929293)
+    static let dAccent = hex(0x4080FF)
+    static let dAccent2 = hex(0x6AA1FF)
+    static let dDanger = hex(0xFBACA3)
 
     /// 跟随系统外观取值。
     static func dyn(light: NSColor, dark: NSColor) -> NSColor {

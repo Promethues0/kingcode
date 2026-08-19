@@ -1,0 +1,1328 @@
+{
+  "_meta": {
+    "source": "/Users/prometheus/Desktop/8月/密码机开发技能包/知识库/KB3-错误码全表与症状根因.md",
+    "converted": "2026-08-19",
+    "provenance": "实测/厂商文档/厂商示例 按源文标注区分",
+    "sdk_version": "4.2.0 (2025-08-22)",
+    "field_convention": "codes 中 symptom/root_cause/remedy 为 null 表示源文未记载该项（标准段第四列为「—」或无对应症状条目），不作推测；具体缺失项见各条 note"
+  },
+  "authority_note": "权威来源只有一个：随库交付的 sdf.h。Java 版说明书（2022）的错误码表已确证与头文件冲突（9 个码含义完全不同，见 java_doc_conflicts），任何情况下都不要用它查错误码。全部接口返回 int，0 成功、非 0 失败。把错误码表从头文件生成，不要手抄任何一份 PDF。",
+  "print_rule": "%x",
+  "print_rule_note": "打印一律用 %x（错误码是位段化的十六进制）；日志里必须同时打印十六进制码和函数名（示例宏用 0x%08x），并对 SDR_NOTSUPPORT 单独告警——在这套 SDK 里它的高频含义是「这个函数根本没实现」，而不是「参数不对」",
+  "triage_note": "拿到一个错误码，先看它落在哪一段，就知道该去哪儿找问题，比逐个查表快得多。这个分段判断本身就是最有用的诊断动作。举例见 confusable_pairs（0x01050019 vs 0x01000019）。",
+  "segments": [
+    {
+      "name": "标准段",
+      "prefix_hex": "0x0100",
+      "range": "0x0100_0001 ~ 0x0100_0026",
+      "domain": "密码运算本身",
+      "first_check": "参数、算法标识、密钥、权限",
+      "base_name": null,
+      "base_hex": "0x01000000",
+      "note": "源文写作「SDR_*（0x01000000 基值）」，未给出基值常量名"
+    },
+    {
+      "name": "通讯段",
+      "prefix_hex": "0x0104",
+      "range": "0x0104_00xx",
+      "domain": "网络与连接",
+      "first_check": "IP/端口、防火墙、密码机进程、连接数",
+      "base_name": "ERR_SOCKET_BASE",
+      "base_hex": "0x01040000",
+      "note": null
+    },
+    {
+      "name": "参数透传段",
+      "prefix_hex": "0x0105",
+      "range": "0x0105_00xx",
+      "domain": "你传了空指针/空缓冲区",
+      "first_check": "哪个参数是 NULL",
+      "base_name": "FLK_ERR_BASE",
+      "base_hex": "0x01050000",
+      "note": "这一段的低位是按十进制习惯写的十六进制（…09 直接跳到 …10，跳过了 0x0A–0x0F）。照抄数值，不要自己按连续序列推算。"
+    },
+    {
+      "name": "JNI 段",
+      "prefix_hex": "0x0106",
+      "range": "0x0106_xxxx",
+      "domain": "Java 对象读写失败",
+      "first_check": "Java 侧传了 null / 类字段对不上",
+      "base_name": "JNI_ERR_BASE",
+      "base_hex": "0x01060000",
+      "note": "两份文档都没有此段，只有头文件里有。看到 0x0106xxxx 就是 Java 侧的问题：传了 null 给结构体参数、或对象类型/字段与本地代码预期不符。"
+    },
+    {
+      "name": "时间戳段",
+      "prefix_hex": "0x0400",
+      "range": "0x0400_00xx",
+      "domain": "时间戳/授时服务",
+      "first_check": "TSA、时间源",
+      "base_name": "STF_TS_ERROR_BASE",
+      "base_hex": "0x04000000",
+      "note": "这一段基值是 0x04000000，不挂在 SDR_BASE 下——统一错误处理时别只判 0x01 开头。"
+    },
+    {
+      "name": "密码卡段",
+      "prefix_hex": "0x0120",
+      "range": "0x0120_00xx",
+      "domain": "设备内部密码卡",
+      "first_check": "设备状态、管理员/操作员、初始化",
+      "base_name": "SDR_ZAYK_BASE",
+      "base_hex": "0x01200000",
+      "note": "前 30 个码与标准段一一对应（SDR_ZAYK_UNKNOWERR…），含义相同，只是发生在设备内部的密码卡上。codes 中仅收录源文列出的「只在这一段出现的、有诊断价值的码」。"
+    },
+    {
+      "name": "UKey 段",
+      "prefix_hex": null,
+      "range": "0x0100_0041~44、0x6984",
+      "domain": "管理员/操作员 UKey",
+      "first_check": "UKey 有没有插、插对没有",
+      "base_name": null,
+      "base_hex": null,
+      "note": "无独立基值段：4 个码借用标准段 0x0100 区间；0x6984 是四位十六进制的孤例，不属于任何基值段（来自智能卡 APDU 状态字体系）。"
+    }
+  ],
+  "codes": [
+    {
+      "code_hex": "0x00000000",
+      "name": "SDR_OK",
+      "meaning": "操作成功",
+      "symptom": "对称解密出来是乱码，但返回 0（成功）（源文症状 4）",
+      "root_cause": "返回 0 不等于产出了结果——有输出缓冲区的调用要另行校验输出长度（KB6 第七节有个返回 0 却什么都不做的函数）。解密乱码四个必查点，按顺序：1) IV 被库改写了——pucIV 是 in/out，加密后 IV 已经变了，解密前必须重新 memset 成原始 IV（最常见）；2) 填充没对齐——SDF_Encrypt/Decrypt 不做填充，长度必须是 16 的倍数，填充与去填充要自己做且两端方式一致；3) 加密和解密用的不是同一把密钥——走 KEK 包装时 SDF_GenerateKeyWithKEK 的 uiAlgID 是包装算法，业务加密的 uiAlgID 是工作算法，两者独立；4) 算法标识不同——加密用 SGD_SMS4_CBC、解密用 SGD_SMS4_ECB 之类。",
+      "remedy": "有输出缓冲区的调用要另行校验输出长度；解密乱码按源文症状 4 的四个必查点顺序排查（处方与根因四点合写）。",
+      "segment": "标准段",
+      "note": "值为 0x00000000，不落在标准段 0x0100 区间内，但源文列于标准段表首行"
+    },
+    {
+      "code_hex": "0x01000001",
+      "name": "SDR_UNKNOWERR",
+      "meaning": "未知错误",
+      "symptom": null,
+      "root_cause": "设备侧兜底码",
+      "remedy": "通常要看设备日志",
+      "segment": "标准段",
+      "note": "源文未记载：symptom"
+    },
+    {
+      "code_hex": "0x01000002",
+      "name": "SDR_NOTSUPPORT",
+      "meaning": "不支持的接口调用",
+      "symptom": "调用返回 0x01000002（不支持的接口调用）（源文症状 1）",
+      "root_cause": "本 SDK 里最需要警惕的码：很可能是你调了一个空桩函数（21 个，恒返回这个码，KB6 第二节全表），不是参数问题。最容易踩的空桩：SDF_InitDevice、SDF_LoadLib、SDF_DevStatus、SDF_GenSymKey_ex、SDF_ModifyAsymKeyPIN_ex、SDF_UnlockPIN_ex、PQC_* 三件套。",
+      "remedy": "先查这个函数是不是空桩。不是空桩的话，再依次查：算法标识是否被设备支持（读 DEVICEINFO 位图）、设备是否装了对应算法模块。日志中对 SDR_NOTSUPPORT 单独告警。",
+      "segment": "标准段",
+      "note": null
+    },
+    {
+      "code_hex": "0x01000003",
+      "name": "SDR_COMMFAIL",
+      "meaning": "与设备通信失败",
+      "symptom": null,
+      "root_cause": "网络断、密码机进程没起",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000004",
+      "name": "SDR_HARDFAIL",
+      "meaning": "运算模块无响应",
+      "symptom": null,
+      "root_cause": "设备硬件/密码卡异常",
+      "remedy": "找运维",
+      "segment": "标准段",
+      "note": "源文未记载：symptom"
+    },
+    {
+      "code_hex": "0x01000005",
+      "name": "SDR_OPENDEVICE",
+      "meaning": "打开设备失败",
+      "symptom": "SDF_OpenDevice 返回 0x01000005（打开设备失败）（源文症状 2）",
+      "root_cause": "IP/端口没配对，或 serverip.ini 没找到。根因排序：1) 既没调 SDF_SetHSM_ex，serverip.ini 也没被找到；2) serverip.ini 放错位置（库会找当前工作目录和 /etc/，Windows 侧找 exe 所在目录）；3) 格式不对——C 文档写 SERVERIP=IP:PORT，Java 文档和随包样例写 SERVERIP=IP（KB6 第九节）。",
+      "remedy": "别用 ini 文件，直接 SDF_SetHSM_ex((unsigned char*)\"10.50.89.155\", 8880) 再 OpenDevice，一行代码消除全部歧义。",
+      "segment": "标准段",
+      "note": null
+    },
+    {
+      "code_hex": "0x01000006",
+      "name": "SDR_OPENSESSION",
+      "meaning": "创建会话失败",
+      "symptom": null,
+      "root_cause": "常见于会话数超限（配合 FLK_ERR_CONN_LIMIT 看）",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000007",
+      "name": "SDR_PARDENY",
+      "meaning": "无私钥使用权限",
+      "symptom": null,
+      "root_cause": "忘了调 SDF_GetPrivateKeyAccessRight，或调了但已被 Release",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000008",
+      "name": "SDR_KEYNOTEXIST",
+      "meaning": "不存在的密钥调用",
+      "symptom": null,
+      "root_cause": "索引里没有这把密钥",
+      "remedy": "用 SDIF_ListKey 列一下实际有哪些",
+      "segment": "标准段",
+      "note": "源文未记载：symptom"
+    },
+    {
+      "code_hex": "0x01000009",
+      "name": "SDR_ALGNOTSUPPORT",
+      "meaning": "不支持的算法调用",
+      "symptom": null,
+      "root_cause": "算法标识传错（如签名传了 SGD_SM2_3），或设备没装该算法模块（查 DEVICEINFO 位图）",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x0100000A",
+      "name": "SDR_ALGMODNOTSUPPORT",
+      "meaning": "不支持的算法模式调用",
+      "symptom": null,
+      "root_cause": "模式位错，如设备不支持 XTS/GCM",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x0100000B",
+      "name": "SDR_PKOPERR",
+      "meaning": "公钥运算失败",
+      "symptom": null,
+      "root_cause": "公钥结构没填对（先查 32 字节右对齐，KB2 第一节）",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x0100000C",
+      "name": "SDR_SKOPERR",
+      "meaning": "私钥运算失败",
+      "symptom": null,
+      "root_cause": "同 SDR_PKOPERR（结构没填对，先查 32 字节右对齐，KB2 第一节），或私钥权限已释放",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy；源文实战解读为「同上，或私钥权限已释放」，「同上」指 SDR_PKOPERR 行"
+    },
+    {
+      "code_hex": "0x0100000D",
+      "name": "SDR_SIGNERR",
+      "meaning": "签名运算失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0100000E",
+      "name": "SDR_VERIFYERR",
+      "meaning": "验证签名失败",
+      "symptom": "验签返回 0x0100000E（验证签名失败），但密钥和数据都「没问题」（源文症状 3）。验签失败 ≠ 出错：多半是 ZA/摘要算错了。",
+      "root_cause": "这是 SM2 接入的头号故障，几乎都是 ZA 问题，不是密钥问题。三个必查点：1) 签名传的是杂凑值还是原文？SDF_*Sign_ECC 的 pucData 必须是 32 字节摘要，不是原文；2) ZA 用的公钥对不对？SDF_HashInit(hSes, SGD_SM3, &公钥, ID, IDLen) 里的公钥必须是签名者自己的公钥——厂商示例 test.c 在这里本身就有个不一致（第 866 行用外部公钥算 ZA，第 904 行却拿去做内部私钥签名），照抄示例会踩坑；3) 两端 ID 是否一致？默认 ID 是 \"1234567812345678\"（16 字节），但厂商示例用的是 \"0123456789abcdef\"。和对方系统对不上，签名就验不过。",
+      "remedy": "排查顺序：先固定 ID 与公钥两端一致 → 再核对摘要值两端相同 → 最后才怀疑密钥。",
+      "segment": "标准段",
+      "note": null
+    },
+    {
+      "code_hex": "0x0100000F",
+      "name": "SDR_SYMOPERR",
+      "meaning": "对称算法运算失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000010",
+      "name": "SDR_STEPERR",
+      "meaning": "多步运算步骤错误",
+      "symptom": null,
+      "root_cause": "杂凑没按 Init→Update→Final 顺序，或同一 session 上并发做了两个杂凑",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000011",
+      "name": "SDR_FILESIZEERR",
+      "meaning": "文件长度超出限制",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000012",
+      "name": "SDR_FILENOEXIST",
+      "meaning": "指定的文件不存在",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000013",
+      "name": "SDR_FILEOFSERR",
+      "meaning": "文件起始位置错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000014",
+      "name": "SDR_KEYTYPEERR",
+      "meaning": "密钥类型错误",
+      "symptom": null,
+      "root_cause": "拿签名密钥去做加密（或反之）",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000015",
+      "name": "SDR_KEYERR",
+      "meaning": "密钥错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000016",
+      "name": "SDR_ENCDATAERR",
+      "meaning": "ECC 加密数据错误",
+      "symptom": null,
+      "root_cause": "ECCCipher 结构不完整/被截断",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000017",
+      "name": "SDR_RANDERR",
+      "meaning": "随机数产生失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom/root_cause/remedy。Java 文档说这是「会话错误」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x01000018",
+      "name": "SDR_PRKRERR",
+      "meaning": "私钥使用权限获取失败",
+      "symptom": null,
+      "root_cause": "口令错、或口令短于 8 字节",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy。Java 文档说这是「数据长度错误」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x01000019",
+      "name": "SDR_MACERR",
+      "meaning": "MAC 运算失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom/root_cause/remedy。Java 文档说这是「参数为空」，是错的——见 java_doc_conflicts。与 0x01050019（FLK_ERR_IV）只差一位，完全另一回事——见 confusable_pairs"
+    },
+    {
+      "code_hex": "0x0100001A",
+      "name": "SDR_FILEEXISTS",
+      "meaning": "指定文件已存在",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom/root_cause/remedy。Java 文档说这是「密钥已释放」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x0100001B",
+      "name": "SDR_FILEWERR",
+      "meaning": "文件写入失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom/root_cause/remedy。Java 文档说这是「申请内存失败」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x0100001C",
+      "name": "SDR_NOBUFFER",
+      "meaning": "存储空间不足",
+      "symptom": null,
+      "root_cause": "设备存储满了",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy。Java 文档说这是「参数错误」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x0100001D",
+      "name": "SDR_INARGERR",
+      "meaning": "输入参数错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom/root_cause/remedy。全场最高频。Java 文档说这是「通讯错误」——这是最坑人的一条，会让整个团队去查网络；这一条误诊的代价通常以天计——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x0100001E",
+      "name": "SDR_OUTARGERR",
+      "meaning": "输出参数错误",
+      "symptom": null,
+      "root_cause": "输出缓冲区不合法",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy。Java 文档说这是「收到设备返回错误」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x0100001F",
+      "name": "SDR_LENGTHERR",
+      "meaning": "参数长度错误",
+      "symptom": null,
+      "root_cause": "长度不匹配（如对称明文不是 16 的倍数）",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy。Java 文档说这是「关闭设备句柄错误」，是错的——见 java_doc_conflicts"
+    },
+    {
+      "code_hex": "0x01000020",
+      "name": "SDR_HANDLEINVALID",
+      "meaning": "非法句柄",
+      "symptom": null,
+      "root_cause": "句柄已关闭/未初始化/跨线程误用",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000021",
+      "name": "SDR_PARLOCK",
+      "meaning": "锁死",
+      "symptom": null,
+      "root_cause": "口令连续错误导致密钥被锁",
+      "remedy": "需管理员解锁",
+      "segment": "标准段",
+      "note": "源文未记载：symptom"
+    },
+    {
+      "code_hex": "0x01000022",
+      "name": "SDR_DEVINITERR",
+      "meaning": "初始化失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000023",
+      "name": "SDR_MEMORY_ERR",
+      "meaning": "申请内存失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000024",
+      "name": "SDR_PADDING_ERR",
+      "meaning": "填充错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文实战解读为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000025",
+      "name": "SDR_UNPADDING_ERR",
+      "meaning": "去填充错误",
+      "symptom": null,
+      "root_cause": "解密方的填充方式和加密方不一致",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01000026",
+      "name": "SDR_CERT_ERR",
+      "meaning": "证书和算法不一致",
+      "symptom": null,
+      "root_cause": "用 RSA 证书做 SM2 运算之类",
+      "remedy": null,
+      "segment": "标准段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01040001",
+      "name": "ERR_CONNECT",
+      "meaning": "联机错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": "检查 IP/端口/防火墙；确认用的是密码机业务 IP",
+      "segment": "通讯段",
+      "note": "源文未记载：symptom、root_cause"
+    },
+    {
+      "code_hex": "0x01040002",
+      "name": "ERR_SEND",
+      "meaning": "发送错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "通讯段",
+      "note": "源文处方为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01040003",
+      "name": "ERR_RECV",
+      "meaning": "接收错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "通讯段",
+      "note": "源文处方为「—」，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01040004",
+      "name": "ERR_TIMEOUT",
+      "meaning": "网络通信超时",
+      "symptom": null,
+      "root_cause": "大数据量运算/网络抖动",
+      "remedy": null,
+      "segment": "通讯段",
+      "note": "源文未记载：symptom、remedy。SDK 没有超时配置项"
+    },
+    {
+      "code_hex": "0x01040005",
+      "name": "ERR_NO_IP",
+      "meaning": "IP 不存在",
+      "symptom": "SDF_OpenDevice 返回 0x01040005（IP 不存在）（源文症状 2）",
+      "root_cause": "没设 IP：既没 SDF_SetHSM_ex 也没找到 serverip.ini。根因排序：1) 既没调 SDF_SetHSM_ex，serverip.ini 也没被找到；2) serverip.ini 放错位置（库会找当前工作目录和 /etc/，Windows 侧找 exe 所在目录）；3) 格式不对——C 文档写 SERVERIP=IP:PORT，Java 文档和随包样例写 SERVERIP=IP（KB6 第九节）。",
+      "remedy": "别用 ini 文件，直接 SDF_SetHSM_ex((unsigned char*)\"10.50.89.155\", 8880) 再 OpenDevice，一行代码消除全部歧义。",
+      "segment": "通讯段",
+      "note": null
+    },
+    {
+      "code_hex": "0x01040006",
+      "name": "FLK_ERR_CONN_LIMIT",
+      "meaning": "连接已达上限",
+      "symptom": "跑一段时间后开始报 0x01040006（连接已达上限）（源文症状 5）",
+      "root_cause": "句柄泄漏的典型信号。三个泄漏点按发生频率排序：1) 会话密钥句柄没销毁——SDF_DestroyKey 漏调，尤其在错误分支里直接 return 的路径；2) Session/Device 没关——异常路径没走到 SDF_CloseSession / SDF_CloseDevice；3) 协商句柄 phAgreementHandle 根本没有销毁接口（头文件里就没有），高频协商场景要向厂商确认它怎么释放。",
+      "remedy": "所有资源用「goto cleanup」单出口模式管理（KB4 有模板）。厂商示例本身就是坏榜样：test.c 的 case 4–9 用 return ret 直接退出，既不关会话也不销毁句柄——别照抄那个结构。",
+      "segment": "通讯段",
+      "note": null
+    },
+    {
+      "code_hex": "0x01040007",
+      "name": "FLK_ERR_RECV_DATA_FORMAT",
+      "meaning": "报文格式错误",
+      "symptom": null,
+      "root_cause": "客户端库与设备版本不匹配",
+      "remedy": null,
+      "segment": "通讯段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01050001",
+      "name": "FLK_ERR_DEVICE",
+      "meaning": "设备句柄为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050002",
+      "name": "FLK_ERR_SESSION",
+      "meaning": "会话句柄为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050003",
+      "name": "FLK_ERR_DEVICEINFO",
+      "meaning": "DEVICEINFO 结构指针为空",
+      "symptom": null,
+      "root_cause": "Java 侧最常见：忘了 new",
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01050004",
+      "name": "FLK_ERR_LEN",
+      "meaning": "不支持此长度",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050005",
+      "name": "FLK_ERR_RANDOM",
+      "meaning": "随机数输出缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050006",
+      "name": "FLK_ERR_UIKEYINDEX",
+      "meaning": "密钥索引错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050007",
+      "name": "FLK_ERR_PASSWORD",
+      "meaning": "口令缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050008",
+      "name": "FLK_ERR_PUBLICKEY",
+      "meaning": "公钥缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050009",
+      "name": "FLK_ERR_PRIVATEKEY",
+      "meaning": "私钥缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050010",
+      "name": "FLK_ERR_RSAKEYBITS",
+      "meaning": "密钥模长错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy。注意：低位从 …09 直接跳到 …10，跳过 0x0A–0x0F"
+    },
+    {
+      "code_hex": "0x01050011",
+      "name": "FLK_ERR_KEYBITS",
+      "meaning": "不支持的密钥长度",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050012",
+      "name": "FLK_ERR_KEY",
+      "meaning": "密钥缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050013",
+      "name": "FLK_ERR_ALGID",
+      "meaning": "算法标识错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050014",
+      "name": "FLK_ERR_SPONSORID",
+      "meaning": "发起方 ID 缓冲为空（密钥协商）",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050015",
+      "name": "FLK_ERR_RESPONSORID",
+      "meaning": "响应方 ID 缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050016",
+      "name": "FLK_ERR_PKEY",
+      "meaning": "密钥句柄错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050017",
+      "name": "FLK_ERR_DATA",
+      "meaning": "数据缓冲为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出「哪个参数是空的」一列，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050018",
+      "name": "FLK_ERR_CIPHER",
+      "meaning": "密文为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050019",
+      "name": "FLK_ERR_IV",
+      "meaning": "IV 为空",
+      "symptom": null,
+      "root_cause": "非 ECB 模式忘了传 IV",
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文未记载：symptom、remedy。与 0x01000019（SDR_MACERR）只差一位，完全另一回事——见 confusable_pairs"
+    },
+    {
+      "code_hex": "0x01050020",
+      "name": "FLK_ERR_PUCID",
+      "meaning": "杂凑签名者 ID 为空",
+      "symptom": null,
+      "root_cause": "做 SM2 带 ZA 杂凑时 pucID 传了 NULL",
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文未记载：symptom、remedy"
+    },
+    {
+      "code_hex": "0x01050021",
+      "name": "FLK_ERR_FILELEN",
+      "meaning": "文件名长度错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050022",
+      "name": "FLK_ERR_FILENAME",
+      "meaning": "文件名为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050023",
+      "name": "FLK_ERR_FILEOFFSET",
+      "meaning": "文件偏移错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01050030",
+      "name": "FLK_ERR_NOLOGINSIGNER",
+      "meaning": "未登录签名服务模块",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "参数透传段",
+      "note": "源文仅给出该列文字，未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01061001",
+      "name": "ERR_CDE_FLK_FIND_CLASS",
+      "meaning": "找不到 Java 类",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "JNI 段",
+      "note": "源文未记载单码级 symptom/root_cause/remedy；段级通则：Java 侧传了 null 给结构体参数、或对象类型/字段与本地代码预期不符"
+    },
+    {
+      "code_hex": "0x01061002",
+      "name": "ERR_CDE_FLK_FIND_MEMBER_ID",
+      "meaning": "找不到字段 ID",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "JNI 段",
+      "note": "源文未记载单码级 symptom/root_cause/remedy；段级通则见 segments「JNI 段」"
+    },
+    {
+      "code_hex": "0x01061003",
+      "name": "ERR_CDE_FLK_GET_OBJ",
+      "meaning": "获取对象失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "JNI 段",
+      "note": "源文未记载单码级 symptom/root_cause/remedy；段级通则见 segments「JNI 段」"
+    },
+    {
+      "code_hex": "0x01061004",
+      "name": "ERR_CDE_FLK_SET_OBJ",
+      "meaning": "设置对象失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "JNI 段",
+      "note": "源文未记载单码级 symptom/root_cause/remedy；段级通则见 segments「JNI 段」"
+    },
+    {
+      "code_hex": "0x01061005",
+      "name": "ERR_CDE_SM2_DER_LENGTH",
+      "meaning": "DER 长度错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "JNI 段",
+      "note": "源文未记载单码级 symptom/root_cause/remedy；段级通则见 segments「JNI 段」"
+    },
+    {
+      "code_hex": "0x01061006",
+      "name": "ERR_CDE_SM2_DER_DATA",
+      "meaning": "DER 数据错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "JNI 段",
+      "note": "源文未记载单码级 symptom/root_cause/remedy；段级通则见 segments「JNI 段」"
+    },
+    {
+      "code_hex": "0x04000001",
+      "name": null,
+      "meaning": "输入信息超范围",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000002",
+      "name": null,
+      "meaning": "内存不够",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000003",
+      "name": null,
+      "meaning": "找不到服务器或超时",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000004",
+      "name": null,
+      "meaning": "格式错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000005",
+      "name": null,
+      "meaning": "项目编号无效",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000006",
+      "name": null,
+      "meaning": "签名无效",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000007",
+      "name": null,
+      "meaning": "不支持的算法",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000008",
+      "name": null,
+      "meaning": "非法申请",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000009",
+      "name": null,
+      "meaning": "数据格式错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0400000A",
+      "name": null,
+      "meaning": "可信时间源问题",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0400000B",
+      "name": null,
+      "meaning": "不支持的策略",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0400000C",
+      "name": null,
+      "meaning": "不支持的扩展",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0400000D",
+      "name": null,
+      "meaning": "不可用附加信息",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0400000E",
+      "name": null,
+      "meaning": "系统内部错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000010",
+      "name": null,
+      "meaning": "入参非法",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy。源文标注：跳过 0x0F"
+    },
+    {
+      "code_hex": "0x04000011",
+      "name": null,
+      "meaning": "未初始化",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000012",
+      "name": null,
+      "meaning": "收到数据为空",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000013",
+      "name": null,
+      "meaning": "内存失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000014",
+      "name": null,
+      "meaning": "签名失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x04000015",
+      "name": null,
+      "meaning": "验签失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "时间戳段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120001F",
+      "name": "SDR_ZAYK_NOMANAGEMENTAUTH",
+      "meaning": "管理权限不满足",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01200020",
+      "name": "SDR_ZAYK_NOOPERATIONAUTH",
+      "meaning": "操作权限不满足",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01200026",
+      "name": "SDR_ZAYK_PRIVATEERR",
+      "meaning": "私钥权限码错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120002A",
+      "name": "SDR_ZAYK_MGRCOUNTERROR",
+      "meaning": "备份时管理员数目不符合要求",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120002B",
+      "name": "SDR_ZAYK_KTDERROR",
+      "meaning": "门限拆分错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文将 0x0120002B/2C 合写为一行「SDR_ZAYK_KTDERROR / KTCERROR｜门限拆分 / 合成错误」，此处按对应关系拆开；未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120002C",
+      "name": "SDR_ZAYK_KTCERROR",
+      "meaning": "门限合成错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文将宏名缩写为「KTCERROR」（承接前项 SDR_ZAYK_ 前缀），全名以 sdf.h 为准；未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120002D",
+      "name": "SDR_ZAYK_CRC_ERROR",
+      "meaning": "恢复时校验值错误",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120002E",
+      "name": "SDR_ZAYK_NEEDINIT",
+      "meaning": "未初始化或已触发密钥销毁，需要重新初始化才能使用",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文以加粗强调此码；未单列 symptom/root_cause/remedy（含义本身已含处置方向：重新初始化）"
+    },
+    {
+      "code_hex": "0x01200030",
+      "name": "MANAGER_OVER",
+      "meaning": "管理员数目已达上限",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文将 0x01200030/31 合写为一行「MANAGER_OVER / OPERATOR_OVER｜管理员/操作员数目已达上限」，此处拆开；宏名照源文原样，未确认是否省略 SDR_ZAYK_ 前缀，以 sdf.h 为准；未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01200031",
+      "name": "OPERATOR_OVER",
+      "meaning": "操作员数目已达上限",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "宏名照源文原样，未确认是否省略 SDR_ZAYK_ 前缀，以 sdf.h 为准；未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120003A",
+      "name": "SDR_ZAYK_ONE_MANAGER",
+      "meaning": "只剩一个管理员，无法删除",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120003B",
+      "name": "SDR_ZAYK_EQDEVICE_EXIST",
+      "meaning": "设备密钥已存在",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x0120003D",
+      "name": "SDR_ZAYK_INDEX_SM2DEC_ERROR",
+      "meaning": "SM2 解密失败",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "密码卡段",
+      "note": "源文未记载 symptom/root_cause/remedy"
+    },
+    {
+      "code_hex": "0x01000041",
+      "name": null,
+      "meaning": "请插入正确的管理员 ukey",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "UKey 段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy；设备管理时会遇到"
+    },
+    {
+      "code_hex": "0x01000042",
+      "name": null,
+      "meaning": "请插入正确的操作员 ukey",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "UKey 段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy；设备管理时会遇到"
+    },
+    {
+      "code_hex": "0x01000043",
+      "name": null,
+      "meaning": "未检测到 ukey",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "UKey 段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy；设备管理时会遇到"
+    },
+    {
+      "code_hex": "0x01000044",
+      "name": null,
+      "meaning": "请插入正确的 ukey",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "UKey 段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy；设备管理时会遇到"
+    },
+    {
+      "code_hex": "0x6984",
+      "name": null,
+      "meaning": "密钥被锁",
+      "symptom": null,
+      "root_cause": null,
+      "remedy": null,
+      "segment": "UKey 段",
+      "note": "源文未给出宏名与 symptom/root_cause/remedy。0x6984 是四位十六进制的孤例，不属于任何基值段（来自智能卡 APDU 状态字体系）——源文即为 4 位，不按 8 位补零"
+    }
+  ],
+  "java_doc_conflicts": [
+    {
+      "code_hex": "0x01000017",
+      "java_doc_says": "SDR_SESSION_ERR 会话错误",
+      "actual": "SDR_RANDERR 随机数产生失败",
+      "wrong_direction": "去查会话"
+    },
+    {
+      "code_hex": "0x01000018",
+      "java_doc_says": "SDR_DATA_LENGTH_ERR 数据长度错误",
+      "actual": "SDR_PRKRERR 私钥权限获取失败",
+      "wrong_direction": "去调缓冲区"
+    },
+    {
+      "code_hex": "0x01000019",
+      "java_doc_says": "SDR_DATA_IS_NULL 参数为空",
+      "actual": "SDR_MACERR MAC 运算失败",
+      "wrong_direction": "去查空指针"
+    },
+    {
+      "code_hex": "0x0100001A",
+      "java_doc_says": "SDR_HANDLE_FREED 密钥已释放",
+      "actual": "SDR_FILEEXISTS 文件已存在",
+      "wrong_direction": "去查句柄生命周期"
+    },
+    {
+      "code_hex": "0x0100001B",
+      "java_doc_says": "SDR_MEMORY_ERR 申请内存失败",
+      "actual": "SDR_FILEWERR 文件写入失败",
+      "wrong_direction": "去查内存"
+    },
+    {
+      "code_hex": "0x0100001C",
+      "java_doc_says": "SDR_PARAM_ERR 参数错误",
+      "actual": "SDR_NOBUFFER 存储空间不足",
+      "wrong_direction": "去改参数（实际是设备满了）"
+    },
+    {
+      "code_hex": "0x0100001D",
+      "java_doc_says": "SDR_SEND_REC_ERR 通讯错误",
+      "actual": "SDR_INARGERR 输入参数错误",
+      "wrong_direction": "去查网络（实际问题在自己代码里）",
+      "note": "0x0100001D 是实战中最高频的码之一。按 Java 文档它指向网络，按头文件它指向你的入参——这一条误诊的代价通常以天计。"
+    },
+    {
+      "code_hex": "0x0100001E",
+      "java_doc_says": "SDR_REC_CODE_ERR 收到设备返回错误",
+      "actual": "SDR_OUTARGERR 输出参数错误",
+      "wrong_direction": "同上",
+      "note": "源文该列原文为「同上」，承接 0x0100001D 行（去查网络/设备侧，实际问题在自己代码里）"
+    },
+    {
+      "code_hex": "0x0100001F",
+      "java_doc_says": "SDR_CLOSEDEVICE 关闭设备句柄错误",
+      "actual": "SDR_LENGTHERR 参数长度错误",
+      "wrong_direction": "同上",
+      "note": "源文该列原文为「同上」，承接 0x0100001D 行"
+    }
+  ],
+  "confusable_pairs": [
+    {
+      "pair": ["0x01050019", "0x01000019"],
+      "names": ["FLK_ERR_IV", "SDR_MACERR"],
+      "note": "只差一位：看到 0x01050019（FLK_ERR_IV 向量为空）时，不用怀疑设备和网络——就是 IV 参数传了 NULL；而 0x01000019（SDR_MACERR）是 MAC 运算失败，完全另一回事。"
+    }
+  ],
+  "non_code_symptoms": [
+    {
+      "symptom": "Java 侧 UnsatisfiedLinkError（源文症状 6）",
+      "root_cause": "调的是 CDE_SDF_ImportPKCS12Key 或 SDF_InitDevice_ex → 这两个方法在库里被 C++ 名字修饰了，无法解析，只能绕开（KB6 第四节）",
+      "remedy": "其它方法 → 检查：1) 包名是否为 jni、类名是否为 CDE_SDF；2) 方法名是否照抄了那三个拼写错误（Encrytp / Destory / Detch，见 KB5 1.3）；3) 库路径与 JVM 位数是否匹配",
+      "note": "无错误码，不入 codes 表；为满足「完整结构化」收录于此"
+    },
+    {
+      "symptom": "编译期报 unknown type name 'size_t'（源文症状 7）",
+      "root_cause": "sdf.h 用了 size_t 却不含任何 #include",
+      "remedy": "在 #include \"sdf.h\" 之前加 #include <stddef.h>。详见 KB6 第一节",
+      "note": "无错误码，不入 codes 表"
+    },
+    {
+      "symptom": "程序启动就报找不到 libflk-x86.so（源文症状 8）",
+      "root_cause": "厂商 Makefile 用的是 ./libflk-x86.so 这个带 ./ 的相对路径做链接对象，它会原样写进 DT_NEEDED。结果是必须在含 .so 的目录下启动进程，LD_LIBRARY_PATH 救不了",
+      "remedy": "改用 -lflk-x86 -L. -Wl,-rpath,'$ORIGIN' 重新链接（KB4 第五节有完整 Makefile）",
+      "note": "无错误码，不入 codes 表"
+    }
+  ],
+  "engineering_practice": {
+    "note": "把错误码表从头文件生成，不要手抄任何一份 PDF。日志里必须同时打印十六进制码和函数名，并对 SDR_NOTSUPPORT 单独告警——在这套 SDK 里它的高频含义是「这个函数根本没实现」，而不是「参数不对」。",
+    "code_blocks": [
+      {
+        "lang": "bash",
+        "purpose": "从 sdf.h 直接生成错误码映射（一次性生成，随 SDK 升级重新跑）",
+        "code": "# 从 sdf.h 直接生成错误码映射（一次性生成，随 SDK 升级重新跑）\ngrep -E '^#define\\s+(SDR_|ERR_|FLK_ERR_|JNI_ERR_|STF_TS_|SDR_ZAYK_)' sdf.h"
+      },
+      {
+        "lang": "c",
+        "purpose": "HSM_CHECK 日志宏：0x%08x 打印 + SDR_NOTSUPPORT 单独告警 + goto cleanup 单出口",
+        "code": "#define HSM_CHECK(call) do {                                                  \\\n    int _r = (call);                                                          \\\n    if (_r != SDR_OK) {                                                       \\\n        fprintf(stderr, \"[HSM] %s 失败 ret=0x%08x %s\\n\", #call, _r,           \\\n                (_r == SDR_NOTSUPPORT)                                        \\\n                  ? \"(不支持——先确认该接口在本版本库中是否为未实现桩)\" : \"\"); \\\n        goto cleanup;                                                         \\\n    }                                                                         \\\n} while (0)"
+      }
+    ]
+  }
+}

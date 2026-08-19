@@ -16,9 +16,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node test/test-project-stats.js && node test/test-mpe-lib.js && node test/test-mpe-remediate.js && node test/test-mpe-data.js && node test/test-mpe-tools.js",
+    "test": "node test/test-project-stats.js && node test/test-mpe-lib.js && node test/test-mpe-remediate.js && node test/test-ooxml.js && node test/test-mpe-data.js && node test/test-mpe-tools.js && node test/test-hsm.js",
     "check:contrast": "node web-brand/tools/check-contrast.js",
-    "smoke": "node bin/kingcode.js \"say hi\""
+    "smoke": "node bin/kingcode.js \"say hi\"",
+    "verify:ooxml": "node test/test-ooxml.js && python3 test/verify-ooxml.py"
   },
   "dependencies": {
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.7",

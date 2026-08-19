@@ -11,9 +11,9 @@
  * 配色与 client.js 的 P 常量块保持一致（这里只用得到三个色）。
  */
 
-const INK = '#262B24'      // 墨绿黑，图标底
-const PAPER = '#F1EFE7'    // 纸底，K 的主笔画
-const ACCENT2 = '#B97B45'  // 深赭渐变亮端，K 的下撇
+const INK = '#1D2129'      // Arco gray-9，图标底
+const PAPER = '#FFFFFF'    // 白，K 的主笔画
+const ACCENT2 = '#4080FF'  // Arco blue-5，K 的下撇
 
 const BRAND_NAME = 'KingCode'
 

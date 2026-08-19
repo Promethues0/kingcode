@@ -40,6 +40,11 @@
          这两项永远人工补。密评合规 ≠ 抗量子安全（SM2 仍可被 Shor 破），
          两套结论分开写，别让客户以为白改了。
 
+      7. **交付物一律出 Excel / Word，不出 markdown。** 整改任务总表、台账导出、
+         前后对比表用 mpe_report_xlsx；整改交付说明、未整改项说明、变更记录用
+         mpe_report_docx。交付包是给测评机构复核的材料，格式必须是他们的工具能
+         直接处理的。数字传 number 类型保留可计算性。
+
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
@@ -69,6 +74,9 @@
 
 - id: mpe-remediate-tools
   name: ../mpe-assess/mpe-remediate-tools.js
+
+- id: mpe-report-tools
+  name: ../mpe-assess/mpe-report-tools.js
 
 # ── 后台任务 ────────────────────────────────────────────────────────────────
 - id: tool-jobs

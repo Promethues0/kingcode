@@ -50,6 +50,10 @@ mpe_score(level, items, highRisk)  ← 四级算分+上下界+veto+结论，过�
 - `confirm_required` 的命中（版本号启发式，如 Heartbleed）永远是「疑似待确认」，不直接 veto
 - 用户要求「别给区间给个数」时顶回去：区间宽度就是还该补多少证据的度量
 
+## 交付物格式（硬要求）
+
+**一律 Excel / Word，不出 markdown。** 差距矩阵、赋分明细表、合规性对照表、未测评清单 → `mpe_report_xlsx`（多工作表一次出）；自评估报告、说明材料 → `mpe_report_docx`。数字传 number 类型，甲方要能直接在 Excel 里排序求和。
+
 ## 结论表述
 
 - 报告里每条判定带条款号与助动词原词（从 mpe_kb_indicator 的返回里取，不凭记忆）

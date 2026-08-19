@@ -8,10 +8,11 @@
  * 叠一层别名 token 覆盖，同 source 重调即整层替换，disposer 可撤。每个值必须
  * {light, dark} 成对（裸字符串会抛教学错误）。
  *
- * 配色：苔径晨雾大地色系（墨绿黑 #262B24 / 纸底 #F1EFE7·#FCFBF7 /
- * 深赭 accent #8F5127→#B97B45 / 岩灰 #6A6B61 / 分隔线 #DFDDD0 /
- * danger 洋红调 #963C4A / good 蓝绿 #447A6E / warn 金 #B1881E），
- * 暗色是同族的「夜径」。**改配色只改下面 P 常量块。**
+ * 配色：字节蓝（Arco Design 色阶——字节跳动开源设计系统）。
+ * accent 用 Arco primary #165DFF 而非品牌色 #3370FF：后者白字对比度
+ * 只有 4.28，不达 WCAG AA。语义三色按「对比度 × 红绿色弱可辨性」双约束
+ * 选取（Arco 九种 red×green 组合里最差的一对色弱 ΔE 仅 2.1）。
+ * **改配色只改下面 P 常量块，改完必跑 tools/check-contrast.js。**
  */
 window.__ModuleLoader__.load({
 	id: 'kingcode-web-brand',
@@ -22,66 +23,71 @@ window.__ModuleLoader__.load({
 
 		// ── 调色板（唯一事实源；favicon 的同名色在 index.js 顶部）────────────
 		const P = {
-			// 亮色：苔径晨雾
-			ink: '#262B24',        // 墨绿黑，主文字与主按钮
-			ink2: '#333830',       // ink 提亮一档
-			ink3: '#4A4E45',       // 次级文字
-			muted: '#6A6B61',      // 岩灰，三级文字
-			faint: '#8E8F84',      // 说明文字
-			surface: '#FCFBF7',    // 最外层纸底（浅）
-			paper2: '#F7F5EE',     // 第二层
-			paper: '#F1EFE7',      // 第三层／侧栏
-			sink: '#EBE8DD',       // 浮层／标签底
-			sink2: '#E4E1D5',      // 按下态
-			line: '#DFDDD0',       // 分隔线
-			accent: '#8F5127',     // 深赭（主 accent）
-			accent2: '#B97B45',    // 深赭渐变另一端
-			danger: '#963C4A',     // 洋红调 danger
-			good: '#447A6E',       // 蓝绿
-			warn: '#B1881E',       // 金
-			// 暗色：夜径（同族深色）
-			dBase: '#191C18',
-			dL1: '#1E221C',
-			dL2: '#242821',
-			dL3: '#2A2E27',
-			dL4: '#343830',
-			dL5: '#3E4239',
-			dCode: '#161915',
-			dText: '#EDEBE1',
-			dText2: '#B9B7AB',
-			dText3: '#94958A',
-			dAccent: '#C08850',
-			dAccent2: '#D19A62',
-			// danger/good 的暗色值不是亮色值随手提亮的结果：两者在红绿色弱
-			// 模拟（Machado 1.0）下会因明度相近而收敛，网格搜索后取
-			// ΔL 11.2 + ΔE 18.5(protan)/19.6(deutan)，沿用亮色板 ≥16 的标准。
-			// 改这两个值前请重跑 tools/check-contrast.js。
-			dDanger: '#CE7280',
-			dGood: '#70B7B3',
-			dWarn: '#CFA23C',
+			// 亮色：字节蓝（Arco Design 色阶，字节跳动开源设计系统）
+			ink: '#1D2129',        // gray-9，主文字与主按钮
+			ink2: '#272E3B',       // gray-8
+			ink3: '#4E5969',       // gray-7，次级文字
+			muted: '#666F7A',      // 三级文字（比 Arco gray-6 深一档：gray-6 在浅底只有 2.92，不达 4.5）
+			faint: '#86909C',      // gray-6，说明文字（仅用于 ≥3 的场景）
+			surface: '#FFFFFF',    // 最外层
+			paper2: '#F7F8FA',     // gray-1，第二层
+			paper: '#F2F3F5',      // gray-2，第三层／侧栏
+			sink: '#E5E6EB',       // gray-3，浮层／标签底
+			sink2: '#DCDEE2',      // 按下态
+			line: '#E5E6EB',       // 分隔线
+			accent: '#165DFF',     // Arco primary（blue-6）。**不用品牌色 #3370FF 做按钮底**：
+			                       // 白字压在 #3370FF 上只有 4.28，不达 WCAG AA 的 4.5；
+			                       // #165DFF 是 5.19，且它本就是字节自家设计系统的主色。
+			accent2: '#4080FF',    // blue-5，渐变另一端
+			// 语义三色是「对比度 × 色弱可辨性」双约束下选的，不是挑好看的：
+			// Arco 九种 red×green 组合里，red-7×green-8 的色弱 ΔE 只有 2.1（最差），
+			// red-8×green-7 是 23.6（最佳且两者都是官方色阶）。改前必跑
+			// tools/check-contrast.js，别只看对比度。
+			danger: '#A1151E',     // red-8，白底 7.95（错误文字要能读）
+			good: '#009A29',       // green-7，白底 3.71（成功色用于图标/徽标，按 ≥3 要求）
+			warn: '#D25F00',       // orange-7，白底 3.91
+			// 暗色：Arco 深色模式色阶
+			dBase: '#17171A',
+			dL1: '#1D1D1F',
+			dL2: '#232324',
+			dL3: '#2A2A2B',
+			dL4: '#313132',
+			dL5: '#373739',
+			dCode: '#141416',
+			dText: '#F6F6F6',
+			dText2: '#C9CDD4',     // gray-4
+			dText3: '#929293',
+			dAccent: '#4080FF',    // 暗底上用 blue-5，blue-6 在深色底对比不足
+			dAccent2: '#6AA1FF',   // blue-4
+			// danger/good 的暗色值同样不是亮色随手提亮：红绿在色弱模拟下会收敛。
+			// 这组取值 good↔danger ΔE 36.6（protan/deutan 取小），远超 16 的红线。
+			// 改这三个值前请重跑 tools/check-contrast.js。
+			dDanger: '#FBACA3',    // red-4
+			dGood: '#00B42A',      // green-6
+			dWarn: '#FF9A2E',      // orange-5
 		}
 
-		/** rgba 辅助：亮色用墨绿黑透明度、暗色用暖白透明度（沿用上游两模式惯例）。 */
-		const inkA = a => `rgba(38, 43, 36, ${a})`
-		const litA = a => `rgba(237, 235, 225, ${a})`
+		/** rgba 辅助：亮色用深灰蓝透明度、暗色用近白透明度（沿用上游两模式惯例）。 */
+		const inkA = a => `rgba(29, 33, 41, ${a})`
+		const litA = a => `rgba(246, 246, 246, ${a})`
 
 		/** 静态色阶同值双写（上游静态阶亮暗基本同值，这里保持该惯例）。 */
 		const flat = v => ({ light: v, dark: v })
 
 		const TOKENS = {
-			// DeepSeek 蓝的整条静态阶 → 深赭家族。别名层覆盖不到那些直接吃
-			// --dsw-static-deepseek-* 的组件（如首页「预览版」徽章底），
-			// 按明度逐档对映后，任何直接消费者都自动落进苔径晨雾里。
-			'--dsw-static-deepseek-50': flat('#FBF4EC'),
-			'--dsw-static-deepseek-100': flat('#F4E9DC'),
-			'--dsw-static-deepseek-200': flat('#EBD9C4'),
-			'--dsw-static-deepseek-300': flat('#DCBE9B'),
-			'--dsw-static-deepseek-400': flat('#C08850'),
-			'--dsw-static-deepseek-450': flat('#B97B45'),
-			'--dsw-static-deepseek-500': flat('#8F5127'),
-			'--dsw-static-deepseek-600': flat('#7C4622'),
-			'--dsw-static-deepseek-800': flat('#3A2B1E'),
-			'--dsw-static-deepseek-900': flat('#2B2118'),
+			// DeepSeek 蓝的整条静态阶 → Arco 蓝阶。别名层覆盖不到那些直接吃
+			// --dsw-static-deepseek-* 的组件（如首页徽章底、输入框光晕），
+			// 逐档对映后任何直接消费者都自动落进字节蓝里。
+			'--dsw-static-deepseek-50': flat('#F2F7FF'),
+			'--dsw-static-deepseek-100': flat('#E8F3FF'),
+			'--dsw-static-deepseek-200': flat('#BEDAFF'),
+			'--dsw-static-deepseek-300': flat('#94BFFF'),
+			'--dsw-static-deepseek-400': flat('#6AA1FF'),
+			'--dsw-static-deepseek-450': flat('#4080FF'),
+			'--dsw-static-deepseek-500': flat('#165DFF'),
+			'--dsw-static-deepseek-600': flat('#0E42D2'),
+			'--dsw-static-deepseek-800': flat('#072CA6'),
+			'--dsw-static-deepseek-900': flat('#031A79'),
 
 			// 背景四层：亮色是纸底逐层加深，暗色逐层提亮
 			'--dsw-alias-bg-base': { light: P.surface, dark: P.dBase },
@@ -92,7 +98,7 @@ window.__ModuleLoader__.load({
 			'--dsw-alias-bg-module-platform': { light: P.paper2, dark: P.dL2 },
 			'--dsw-alias-bg-multi-select': { light: P.paper2, dark: P.dL3 },
 			'--dsw-alias-bg-skeleton': { light: inkA(0.05), dark: litA(0.08) },
-			'--dsw-alias-bg-mask-drop': { light: 'rgba(252, 251, 247, 0.7)', dark: 'rgba(25, 28, 24, 0.7)' },
+			'--dsw-alias-bg-mask-drop': { light: 'rgba(255, 255, 255, 0.7)', dark: 'rgba(23, 23, 26, 0.7)' },
 
 			// 描边
 			'--dsw-alias-border-l1': { light: inkA(0.05), dark: litA(0.06) },
@@ -103,57 +109,57 @@ window.__ModuleLoader__.load({
 
 			// 文字
 			'--dsw-alias-label-primary': { light: P.ink, dark: P.dText },
-			'--dsw-alias-label-primary-dimmed': { light: P.ink2, dark: '#DAD8CC' },
+			'--dsw-alias-label-primary-dimmed': { light: P.ink2, dark: '#E5E6EB' },
 			'--dsw-alias-label-primary-foreground': { light: P.surface, dark: P.dBase },
 			'--dsw-alias-label-primary-inverted': { light: P.surface, dark: P.dL2 },
 			'--dsw-alias-label-primary-bluish': { light: P.ink, dark: P.dText },
 			'--dsw-alias-label-secondary': { light: P.ink3, dark: P.dText2 },
 			'--dsw-alias-label-tertiary': { light: P.muted, dark: P.dText3 },
 			'--dsw-alias-label-caption': { light: P.faint, dark: P.muted },
-			'--dsw-alias-label-dimmed': { light: P.line, dark: '#4A4E45' },
+			'--dsw-alias-label-dimmed': { light: P.line, dark: '#4E5969' },
 
-			// 品牌主色：上游是纯黑/纯白，这里换成墨绿黑/暖白
+			// 品牌主色：上游是纯黑/纯白，这里换成 Arco gray-9 / 近白
 			'--dsw-alias-brand-primary': { light: P.ink, dark: P.dText },
 			'--dsw-alias-brand-primary-invert': { light: P.ink, dark: P.dText },
 			'--dsw-alias-brand-text': { light: P.ink, dark: P.dText },
-			// accent 位（上游是 DeepSeek 蓝）→ 深赭
+			// accent 位：换成 Arco primary
 			'--dsw-alias-brand-primary-new-colorprimary-new-color': { light: P.accent, dark: P.dAccent },
 			'--dsw-alias-state-business-primary': { light: P.accent, dark: P.dAccent },
 			'--dsw-alias-business-primary': { light: P.accent, dark: P.dAccent },
-			'--dsw-alias-business-tertiary': { light: '#F0E4D9', dark: '#33281E' },
+			'--dsw-alias-business-tertiary': { light: '#E8F3FF', dark: '#072CA6' },
 
 			// 按钮
 			'--dsw-alias-button-primary-fill': { light: P.ink, dark: P.dText },
-			'--dsw-alias-button-primary-hover': { light: '#3A4036', dark: '#D5D3C7' },
-			'--dsw-alias-button-primary-dimmed': { light: P.sink2, dark: '#3A4036' },
+			'--dsw-alias-button-primary-hover': { light: '#272E3B', dark: '#E5E6EB' },
+			'--dsw-alias-button-primary-dimmed': { light: P.sink2, dark: '#313132' },
 			'--dsw-alias-button-contrast-fill': { light: P.ink3, dark: P.dText },
 			'--dsw-alias-button-elevated-fill': { light: P.surface, dark: P.dL4 },
 			'--dsw-alias-button-floating-fill': { light: P.surface, dark: P.dL2 },
 			'--dsw-alias-button-floating-hover': { light: P.paper, dark: P.dL3 },
 			'--dsw-alias-button-ghost-active-fill': { light: P.sink, dark: P.dL4 },
 			'--dsw-alias-button-ghost-active-hover': { light: P.sink2, dark: P.dL5 },
-			'--dsw-alias-button-ghost-active-border': { light: '#A8A99E', dark: P.muted },
-			// 主动作钮（发送等）：深赭而非蓝
+			'--dsw-alias-button-ghost-active-border': { light: '#C9CDD4', dark: P.muted },
+			// 主动作钮（发送等）：Arco primary
 			'--dsw-alias-button-info-fill': { light: P.accent, dark: P.dAccent },
-			'--dsw-alias-button-info-hover': { light: '#A66334', dark: P.dAccent2 },
+			'--dsw-alias-button-info-hover': { light: '#0E42D2', dark: P.dAccent2 },
 
 			// 交互态
 			'--dsw-alias-interactive-bg-hover': { light: inkA(0.06), dark: litA(0.08) },
 			'--dsw-alias-interactive-bg-hover-solid': { light: P.paper, dark: P.dL2 },
 			'--dsw-alias-interactive-bg-hover-accent': { light: inkA(0.14), dark: litA(0.24) },
 			'--dsw-alias-interactive-bg-active': { light: inkA(0.1), dark: litA(0.14) },
-			'--dsw-alias-interactive-bg-hover-danger': { light: 'rgba(150, 60, 74, 0.06)', dark: 'rgba(196, 99, 111, 0.15)' },
+			'--dsw-alias-interactive-bg-hover-danger': { light: 'rgba(161, 21, 30, 0.06)', dark: 'rgba(251, 172, 163, 0.15)' },
 
 			// 状态色
 			'--dsw-alias-error-primary': { light: P.danger, dark: P.dDanger },
-			'--dsw-alias-error-secondary': { light: '#B04B5A', dark: '#DB8E97' },
+			'--dsw-alias-error-secondary': { light: '#CB272D', dark: '#F98981' },
 			'--dsw-alias-success-primary': { light: P.good, dark: P.dGood },
-			'--dsw-alias-success-secondary': { light: '#55907F', dark: '#8AC7C3' },
-			'--dsw-alias-success-tertiary': { light: '#E3EFEA', dark: '#1E2E2A' },
+			'--dsw-alias-success-secondary': { light: '#00B42A', dark: '#4CD263' },
+			'--dsw-alias-success-tertiary': { light: '#E8FFEA', dark: '#00301C' },
 			'--dsw-alias-warn-primary': { light: P.warn, dark: P.dWarn },
-			'--dsw-alias-warn-secondary': { light: '#C79C2E', dark: '#DDB456' },
-			'--dsw-alias-warn-label': { light: '#96731A', dark: P.dWarn },
-			'--dsw-alias-warn-tertiary': { light: '#F5EEDA', dark: '#302A18' },
+			'--dsw-alias-warn-secondary': { light: '#FF7D00', dark: '#FFB65D' },
+			'--dsw-alias-warn-label': { light: '#A64500', dark: P.dWarn },
+			'--dsw-alias-warn-tertiary': { light: '#FFF7E8', dark: '#3A2100' },
 
 			// markdown / 代码
 			'--dsw-alias-code-block': { light: P.paper, dark: P.dCode },

@@ -1,0 +1,234 @@
+{
+  "_meta": {
+    "source": "/Users/prometheus/Desktop/8月/密码机开发技能包/知识库/KB6-实测校验与已知缺陷清单.md",
+    "converted": "2026-08-19",
+    "provenance": "实测/厂商文档/厂商示例 按源文标注区分",
+    "sdk_version": "4.2.0 (2025-08-22)",
+    "provenance_note": "源文（KB6）声明：内容不来自任何厂商文档，而是对随包交付的二进制与头文件逐条实测得出；三份厂商文档（C 接口说明书 V4.1、Java 版开发使用说明书 2022-07-22、openApi 接口说明文档 V04R25C01）都没有记载其中任何一条。本 JSON 中 evidence/repro 均为实测层证据；引用厂商文档处已在文中标明出处。"
+  },
+  "citation_rule": "引用任何缺陷必须附复现方法（源文明文要求：让开发者自己确认而不是相信断言）",
+  "authority_rule": "sdf.h 是随库交付、与 .so/.dll 同版本的唯一权威。三份文档与头文件冲突时，一律以头文件为准；头文件与实测二进制冲突时，以二进制为准。",
+  "artifacts": [
+    {
+      "item": "Linux x86-64 动态库",
+      "path": "Linux/libflk-x86.so",
+      "version_fact": "内嵌版本串 SDK_SOFTWAVE_VERSION:4.2.0 (2025-8-22)"
+    },
+    {
+      "item": "Linux ARM64 动态库",
+      "path": "Linux/libflk-arm.so",
+      "version_fact": "同上（内嵌版本串 SDK_SOFTWAVE_VERSION:4.2.0 (2025-8-22)），导出面与 x86 一致"
+    },
+    {
+      "item": "Windows 动态库",
+      "path": "Windows/x64/SDF.dll、Windows/x86/SDF.dll",
+      "version_fact": "导出 454 项，两个架构一致"
+    },
+    {
+      "item": "头文件",
+      "path": "Linux/sdf.h = Windows/x64/sdf.h",
+      "version_fact": "两平台逐字节相同（diff 无差异），1019 行"
+    },
+    {
+      "item": "示例程序",
+      "path": "Linux/test.c、Windows/x64/testSDF.cpp",
+      "version_fact": "见 KB4"
+    }
+  ],
+  "doc_skew": [
+    {
+      "material": "C 接口说明书",
+      "version": "V4.1，2025 年 8 月",
+      "relation_to_delivered_sdk": "最接近，但仍落后一个小版本（实物库 4.2.0 / 2025-08-22）"
+    },
+    {
+      "material": "Java 版开发使用说明书",
+      "version": "v1.5，2022-07-22",
+      "relation_to_delivered_sdk": "落后约 3 年，错误码表已与头文件不一致（见 DEF05）"
+    },
+    {
+      "material": "openApi 接口说明文档",
+      "version": "V04R25C01",
+      "relation_to_delivered_sdk": "设备管理面，与 SDF 库不同层，见 KB5"
+    }
+  ],
+  "defects": [
+    {
+      "id": "DEF01",
+      "title": "sdf.h 无法独立编译，必须先包含 <stddef.h>",
+      "severity": "致命",
+      "phenomenon": "直接 #include \"sdf.h\" 编译失败，报 unknown type name 'size_t'（8 处）。",
+      "evidence": "根因：头文件第 964–990 行的 PQC_Sign / PQC_Verify / FLK_ECDSA_DERtoHex* 使用了 size_t，但 sdf.h 全文没有任何 #include，也没有包含 <stddef.h> / <stdio.h>。",
+      "repro": "printf '#include \"sdf.h\"\\nint main(void){return 0;}\\n' > t.c && cc -fsyntax-only -I. t.c\n# → ./sdf.h:964:81: error: unknown type name 'size_t'   （共 8 处）\n\nprintf '#include <stddef.h>\\n#include \"sdf.h\"\\nint main(void){return 0;}\\n' > t.c && cc -fsyntax-only -I. t.c\n# → 通过，无任何警告",
+      "remedy": "所有包含 sdf.h 的编译单元，必须在它之前包含 <stddef.h>（或任何间接引入 size_t 的头，如 <stdio.h>、<stdlib.h>、<string.h>）。厂商示例 test.c 恰好先包含了 <stdio.h> 才没暴露这个问题——这也是为什么\"照着示例改就没事、自己新建文件就编不过\"。推荐在项目里包一层，避免每个文件都记这条：\n\n/* hsm.h —— 项目内统一入口，替代直接 include sdf.h */\n#ifndef PROJECT_HSM_H\n#define PROJECT_HSM_H\n#include <stddef.h>     /* 必须在 sdf.h 之前：sdf.h 用了 size_t 却不自带 include */\n#include <string.h>\n#include \"sdf.h\"\n#endif",
+      "affected": [
+        "所有直接 #include \"sdf.h\" 且未先包含 <stddef.h> 的编译单元（全平台，头文件两平台逐字节相同）",
+        "sdf.h 第 964–990 行使用 size_t 的声明：PQC_Sign / PQC_Verify / FLK_ECDSA_DERtoHex*"
+      ]
+    },
+    {
+      "id": "DEF02",
+      "title": "21 个导出函数是空桩，恒定返回 SDR_NOTSUPPORT",
+      "severity": "致命",
+      "phenomenon": "这些函数在头文件里有完整声明、在库里有导出符号，调用不会报链接错误，但函数体只做一件事：把返回值置为 0x01000002（SDR_NOTSUPPORT 不支持的接口调用）然后返回。它们不接触设备、不校验参数、不做任何运算。",
+      "evidence": "同一函数（PQC_Sign）在 ARM64 上是 mov w0,#2 + movk w0,#0x100,lsl #16（同样得到 0x01000002）后 ret；在 Windows x64 上更直白，只有 6 字节：b8 02 00 00 01（mov eax,0x01000002）+ c3（ret）。三个平台构建行为一致，不是某个平台的构建事故。\n空桩清单（函数｜头文件里的用途描述｜影响）：\nPQC_GenerateSignKeyPair｜PQC 生成签名密钥｜后量子签名整条线不可用，见 DEF03\nPQC_Sign｜PQC 签名｜同上\nPQC_Verify｜PQC 验签｜同上\nSDF_InitDevice｜设备初始化｜初始化只能走管理工具 / openApi\nSDF_LoadLib｜加载库｜无需调用；某些示例会调它并判返回值，会误判为失败\nSDF_OpenDeviceCfg｜按配置打开设备｜改用 SDF_OpenDevice 或 SDF_OpenDeviceWithIP\nSDF_DevStatus｜设备状态｜取不到状态，健康检查需另想办法（见 remedy）\nSDF_TestAlgType_ex｜算法正确性校验指定类型｜自检类功能不可用\nSDF_GenSymKey_ex｜生成指定索引的对称密钥｜对称密钥只能靠管理工具 / openApi 预置\nSDF_GenSymKey_Pin｜生成指定索引 KEK（带私钥控制码）｜同上\nSDF_GenerateECCKeyPair_ex_Pin｜生成指定索引 SM2 密钥对（带控制码）｜带 PIN 的密钥生成整组不可用\nSDF_GenerateRSAKeyPair_ex_Pin｜生成指定索引 RSA 密钥对（带控制码）｜同上\nSDF_ModifyAsymKeyPIN_ex｜修改非对称密钥 PIN｜PIN 生命周期管理不可用\nSDF_UnlockPIN_ex｜解锁 PIN｜同上；PIN 锁死后只能走管理面\nSDF_ExportECCKeyPair_ex｜导出 ECC 密钥对｜—\nSDF_GenEqAsymKeyPair｜生成等效非对称密钥对｜EqAsymKey 整组不可用\nSDF_DelEqAsymKeyPair｜删除等效非对称密钥对｜同上\nSDF_EqAsymKeyImportECCKeyPair｜导入等效 ECC 密钥对｜同上\nSOF_GetTime_ex｜取可信时间｜时间戳/可信时间不可用\nSOF_SyncTime_ex｜同步时间｜同上\nSOF_TimeCardStatus_ex｜时间卡状态｜同上\nARM64 库比 x86 多一个空桩：SDF_GetEqAsymKeyStatus（x86 上是有实现的）。EqAsymKey 这组在两个平台上都残缺，不要在跨平台产品里使用。\n检测方法的边界（请如实转述，不要夸大）：上述扫描只覆盖「函数体 ≤80 字节且以 mov eax,<常量>; ret 结尾」的形态。体积更大、或先做参数判空再返回 SDR_NOTSUPPORT 的\"半桩\"不在此列。所以\"不在这张表里\"不等于\"一定有实现\"——投产前对每个要用的接口做一次真机冒烟调用，是不能省的。",
+      "repro": "x86-64，PQC_Sign 函数体全部 33 字节（反汇编）：\n55                 push rbp\n48 89 e5           mov  rbp, rsp\n89 7d fc           mov  [rbp-4], edi        ; 仅把入参存栈，之后再未使用\n89 75 f8           mov  [rbp-8], esi\n48 89 55 f0        mov  [rbp-16], rdx\n48 89 4d e8        mov  [rbp-24], rcx\n4c 89 45 e0        mov  [rbp-32], r8\n4c 89 4d d8        mov  [rbp-40], r9\nb8 02 00 00 01     mov  eax, 0x01000002     ; ← SDR_NOTSUPPORT\n5d                 pop  rbp\nc3                 ret",
+      "remedy": "1. 接入前先跑一遍冒烟表：对项目要用到的每个 SDF 函数，在真机上用最小参数调一次，凡是返回 0x01000002 的，立即从设计里划掉，另找替代路径（管理工具 / openApi / 换接口）。\n2. 健康检查不要用 SDF_DevStatus（空桩）。可用组合：SDF_OpenSession 成功 + SDF_GenerateRandom 取 8 字节成功，作为\"设备可用\"的判据。\n3. 需要 SDR_NOTSUPPORT 的兜底分支：这个返回值在本 SDK 里的高频含义不是\"参数不对\"，而是\"这个函数根本没实现\"。日志里要把它和别的错误区分开，否则会带着团队去查网络和权限。",
+      "affected": [
+        "PQC_GenerateSignKeyPair",
+        "PQC_Sign",
+        "PQC_Verify",
+        "SDF_InitDevice",
+        "SDF_LoadLib",
+        "SDF_OpenDeviceCfg",
+        "SDF_DevStatus",
+        "SDF_TestAlgType_ex",
+        "SDF_GenSymKey_ex",
+        "SDF_GenSymKey_Pin",
+        "SDF_GenerateECCKeyPair_ex_Pin",
+        "SDF_GenerateRSAKeyPair_ex_Pin",
+        "SDF_ModifyAsymKeyPIN_ex",
+        "SDF_UnlockPIN_ex",
+        "SDF_ExportECCKeyPair_ex",
+        "SDF_GenEqAsymKeyPair",
+        "SDF_DelEqAsymKeyPair",
+        "SDF_EqAsymKeyImportECCKeyPair",
+        "SOF_GetTime_ex",
+        "SOF_SyncTime_ex",
+        "SOF_TimeCardStatus_ex",
+        "SDF_GetEqAsymKeyStatus（仅 ARM64 为空桩，x86 上有实现）"
+      ]
+    },
+    {
+      "id": "DEF03",
+      "title": "后量子签名要走 openApi，走 SDK 一定失败",
+      "severity": "重大",
+      "phenomenon": "设备本身支持后量子签名：openApi 文档有完整的三个接口——POST /api/pqc/getKeyPair、/api/pqc/sign、/api/pqc/verify，算法固定 Aigis-sig，mode 取 1 / 2 / 3，密钥按 keyIndex 存在设备里。但 C/Java SDK 里的 PQC_* 三个函数是空桩，调用必然返回 SDR_NOTSUPPORT（证据见 DEF02）。也就是说：能力在设备侧，通路只有 HTTP 一条。用 SDF 库写后量子签名，代码能编译、能链接、能跑，就是永远返回 0x01000002——而且报的是\"不支持\"，很容易被误读成\"参数没配对\"或\"设备没授权\"，一查就是半天。",
+      "evidence": "三条佐证 SDK 侧确实没有实现（不只是没实现好）：\n1. 算法取值无处可查：PQC_Sign(unsigned int uiAlg, unsigned int uiMode, ...) 的 uiAlg / uiMode 在头文件里没有任何宏定义，C 与 Java 两份说明书也一个字都没提 PQC。openApi 那边给的是字符串 \"Aigis-sig\" 和整数 mode，无法映射到 SDK 的两个 uint。\n2. 库里没有后量子算法的实现痕迹：对 libflk-x86.so 全量字符串检索 dilithium / kyber / ml-dsa / ml-kem / sphincs / falcon / aigis，命中数为 0。（对照组：SM9 是真有实现的，能搜到 GmSSL SM9 algorithm、sm9_ameth.c 等大量字符串。）\n3. 没有转发路径：库里真正下发到密码机的调用都有一个 CLIENT_ 前缀的孪生符号（如 CLIENT_SDF_InternalSign_ECC），而 CLIENT_PQC_* 不存在——SDK 里没有把 PQC 请求送出去的通路。",
+      "repro": "strings libflk-x86.so | grep -icE 'dilithium|kyber|ml.?dsa|ml.?kem|sphincs|falcon|aigis'  # → 0\nstrings libflk-x86.so | grep -c 'CLIENT_PQC'                                              # → 0\nstrings libflk-x86.so | grep -c 'GmSSL SM9 algorithm'                                     # → ≥1（对照组）",
+      "remedy": "1. 后量子签名一律走 openApi（http://ip:9090 或 https://ip:9443），见 KB5。注意 openApi 无任何身份认证，必须靠网络隔离——同一条 KB5 里有详述。\n2. 在密评、后量子迁移规划、招投标应答里，口径应写成：「设备经 openApi 支持 Aigis-sig 后量子签名（mode 1/2/3）；SDF C/Java SDK 的 PQC 接口在当前版本 4.2.0 中为未实现桩，调用返回不支持」。两句都要说——只说前半句是夸大，只说后半句是漏报。\n3. 若架构上必须让 C/Java 应用用到后量子签名，只有两条路：应用侧改走 HTTP，或要求厂商在 SDK 里补实现并给出 uiAlg/uiMode 取值表。这是排期问题，早发现早改。",
+      "affected": [
+        "PQC_GenerateSignKeyPair（C/Java SDK，全平台空桩）",
+        "PQC_Sign（C/Java SDK，全平台空桩）",
+        "PQC_Verify（C/Java SDK，全平台空桩）",
+        "设备能力本身经 openApi 可用（Aigis-sig，mode 1/2/3），不受此缺陷影响"
+      ]
+    },
+    {
+      "id": "DEF04",
+      "title": "Java 侧有两个方法必然抛 UnsatisfiedLinkError",
+      "severity": "致命",
+      "phenomenon": "JNI 要求本地方法的导出符号是未修饰的 C 名字（Java_<包>_<类>_<方法>）。库里 223 个 JNI 入口有 221 个是正确的 C 名字，但 CDE_SDF_ImportPKCS12Key 与 SDF_InitDevice_ex 这两个被 C++ 名字修饰了。JVM 按未修饰名查找符号，找不到 → 首次调用这两个方法时抛 java.lang.UnsatisfiedLinkError，而不是返回错误码。这是运行期异常，编译期和加载期都不会报。",
+      "evidence": "库中的实际符号（被 C++ 修饰）：\nCDE_SDF_ImportPKCS12Key → Linux：_Z43Java_jni_CDE_1SDF_CDE_1SDF_1ImportPKCS12KeyP7JNIEnv_...；Windows：?Java_jni_CDE_1SDF_CDE_1SDF_1ImportPKCS12Key@@YAJPEAUJNIEnv_@@...\nSDF_InitDevice_ex → Linux：_Z37Java_jni_CDE_1SDF_SDF_1InitDevice_1exP7JNIEnv_P8_jobjectli；Windows：?Java_jni_CDE_1SDF_SDF_1InitDevice_1ex@@YAJPEAUJNIEnv_@@...\n根因：这两个函数在 C++ 源码里漏写了 extern \"C\" / JNIEXPORT。",
+      "repro": "任一平台，符号名里带 _Z 或 ? 前缀即为被修饰：\n# Linux\nnm -D --defined-only libflk-x86.so | grep -E 'ImportPKCS12Key|InitDevice_1ex'\n# 只能看到 _Z... 修饰名，看不到干净的 Java_jni_CDE_1SDF_...",
+      "remedy": "Java 侧避开这两个方法。设备初始化走管理工具或 openApi；PKCS#12 导入改用 SDF_ImportECCKeyPair_ex 等已正常导出的接口，或在 Java 侧自行解析 P12 后再导入。若必须使用，只能要求厂商修复重新出库。",
+      "affected": [
+        "CDE_SDF_ImportPKCS12Key（Java/JNI，Linux 与 Windows 均受影响）",
+        "SDF_InitDevice_ex（Java/JNI，Linux 与 Windows 均受影响）"
+      ]
+    },
+    {
+      "id": "DEF05",
+      "title": "Java 文档的错误码表与头文件冲突，照它排障会查错方向",
+      "severity": "重大",
+      "phenomenon": "Java 版说明书（2022）附录 A 的错误码表，与随库头文件 sdf.h（2025）在 0x01000017 之后整体错位。两边都在用同一批数值，但含义完全不同。其中 0x0100001D 是实战中最常见的一个码：按 Java 文档它是\"通讯错误\"，团队会去查网络、防火墙、密码机负载；按头文件它是\"输入参数错误\"，问题在自己代码里。这类误诊的代价是以天计的。",
+      "evidence": "错位对照（数值｜sdf.h（权威，随库交付）｜Java 文档（2022，已过时）｜照 Java 文档排障会怎样）：\n0x01000017｜SDR_RANDERR 随机数产生失败｜SDR_SESSION_ERR 会话错误｜去查会话，实际是随机数模块\n0x01000018｜SDR_PRKRERR 私钥使用权限获取失败｜SDR_DATA_LENGTH_ERR 数据长度错误｜去调缓冲区，实际是没取私钥权限\n0x01000019｜SDR_MACERR MAC 运算失败｜SDR_DATA_IS_NULL 参数为空｜去查空指针，实际是 MAC 运算\n0x0100001A｜SDR_FILEEXISTS 指定文件已存在｜SDR_HANDLE_FREED 密钥已释放｜去查句柄生命周期，实际是文件重名\n0x0100001B｜SDR_FILEWERR 文件写入失败｜SDR_MEMORY_ERR 申请内存失败｜去查内存，实际是写文件失败\n0x0100001C｜SDR_NOBUFFER 存储空间不足｜SDR_PARAM_ERR 参数错误｜去改参数，实际是设备存储满了\n0x0100001D｜SDR_INARGERR 输入参数错误｜SDR_SEND_REC_ERR 通讯错误｜去查网络，实际是入参写错了\n0x0100001E｜SDR_OUTARGERR 输出参数错误｜SDR_REC_CODE_ERR 收到设备返回错误｜同上\n0x0100001F｜SDR_LENGTHERR 参数长度错误｜SDR_CLOSEDEVICE 关闭设备句柄错误｜同上\n\n另有一组两份文档都没有的错误码（0x01060000 段，JNI 层专用），摘自 sdf.h：\n#define JNI_ERR_BASE               (SDR_BASE + 0x00060000)\n#define ERR_CDE_FLK_FIND_CLASS     (JNI_ERR_BASE + 0x1001) // 对象错误\n#define ERR_CDE_FLK_FIND_MEMBER_ID (JNI_ERR_BASE + 0x1002) // 对象ID错误\n#define ERR_CDE_FLK_GET_OBJ        (JNI_ERR_BASE + 0x1003) // 获取对象失败\n#define ERR_CDE_FLK_SET_OBJ        (JNI_ERR_BASE + 0x1004) // 设置对象失败\n#define ERR_CDE_SM2_DER_LENGTH     (JNI_ERR_BASE + 0x1005) // DER长度错误\n#define ERR_CDE_SM2_DER_DATA       (JNI_ERR_BASE + 0x1006) // DER数据错误\n看到 0x0106xxxx 段的错误码，含义是 JNI 层没能读写 Java 对象字段，通常是传了 null、或传入的对象类型/字段与本地代码预期不符（例如该 new ECCrefPublicKey() 却传了 null）。这个信息在任何一份文档里都查不到。",
+      "repro": "打开随库 sdf.h 与 Java 版开发使用说明书（2022）附录 A，逐一对照 0x01000017–0x0100001F 各码的宏名与文字含义，即可确认整体错位（对照结果见 evidence）。注：源文此节未给出命令块，复现方法即两份材料逐码对照；此处未发明任何命令。",
+      "remedy": "错误码解释只认 sdf.h（KB3 已按头文件整理）。项目里把错误码映射表从头文件直接生成，不要手抄任何一份 PDF。Java 项目尤其要注意——Java 文档是这套材料里最旧的一份。",
+      "affected": [
+        "错误码 0x01000017–0x0100001F 的排障解读（按 2022 版 Java 说明书附录 A 排障的所有项目，尤其 Java 平台）",
+        "JNI 层专用错误码段 0x01060000（两份文档均未记载）"
+      ],
+      "note": "repro 为对照步骤而非命令：源文第五节没有命令块（硬规则不发明数据）。"
+    },
+    {
+      "id": "DEF06",
+      "title": "Java SDK 的三个交付件不在这批材料里，但 native 层在",
+      "severity": null,
+      "phenomenon": "Java 文档（P65）写明需要三件：jni.jar、Linux libjni_CDE_SDF.so、Windows jni_CDE_SDF_win.dll，示例是 testsdf.java。这四个文件在本次交付的 Windows/ 与 Linux/ 目录里一个都没有。但实测发现：JNI 入口已经编译进了随包交付的库本身。",
+      "evidence": "libflk-x86.so / libflk-arm.so / SDF.dll 各自导出 223 个 Java_jni_CDE_1SDF_* 符号，两个平台的方法集合完全一致（差集为空）。由符号名可以反推出 Java 侧的绑定关系（JNI 命名规则：Java_ + 包名 + _ + 类名 + _ + 方法名，_1 是转义的 _）：包名 jni，类名 CDE_SDF，即 jni.CDE_SDF；223 个本地方法分四族：SDF_*（GM/T 0018 密码运算）、CDE_SDF_*（设备管理/密钥生命周期/管理员操作员）、CDE_SOF_* 与 SOF_*（GM/T 0020 应用层：P7 签名、数字信封、时间戳）、PQC_*（3 个，空桩）。同时可以确定：Java 文档 1.8 节的 flk_*（二次封装）与 1.9 节的 Map 风格接口（三次封装）在 native 层没有任何对应符号——它们是 jni.jar 里的纯 Java 包装代码。所以拿不到 jni.jar 就用不了 flk_GenSeSKeyWithSM2 / flk_SM4Enc / Map 那两层，这不是配置问题，是文件缺失。",
+      "repro": "①核对交付的 Windows/ 与 Linux/ 目录，确认 jni.jar、libjni_CDE_SDF.so、jni_CDE_SDF_win.dll、testsdf.java 四个文件缺失；②检查 libflk-x86.so / libflk-arm.so / SDF.dll 的导出符号表，统计 Java_jni_CDE_1SDF_* 前缀符号（各 223 个，两平台方法集合差集为空），且其中查不到 flk_* 与 Map 风格接口的任何对应符号。注：源文此节未给出命令块，此为按源文描述整理的核对步骤；未发明任何命令。",
+      "remedy": "两条路，按项目情况选：\n1. 向厂商索取 jni.jar + testsdf.java（推荐）。索取时一并确认：Java 文档 1.9.1 到底叫 SDF_Set_HsmIp 还是 SDF_SetDevIP_ex（文档目录与正文自相矛盾），以及 jni.jar 与 SDK 4.2.0 是否配套（Java 文档是 2022 年的）。\n2. 自己声明 native 方法直接绑现有库（应急可行）：既然 223 个入口就在 libflk-*.so / SDF.dll 里，自建 package jni; public class CDE_SDF { public static native int SDF_OpenDevice(long[] h); ... } 并 System.load(\"/abs/path/libflk-x86.so\") 即可调通 native 层，只是拿不到 flk_* 便利封装。包名必须是 jni、类名必须是 CDE_SDF，否则符号名对不上。",
+      "affected": [
+        "Java 平台：flk_*（二次封装）便利层——随 jni.jar 缺失不可用",
+        "Java 平台：Map 风格接口（三次封装）——同上",
+        "native 层 223 个 JNI 入口不受影响（已编译进随包交付的库）"
+      ],
+      "note": "源文标题无【致命/重大】等严重度标记，severity 置 null（不发明数据）。repro 为核对步骤而非命令：源文第六节没有命令块。"
+    },
+    {
+      "id": "DEF07",
+      "title": "库内嵌的密码实现与\"密钥是否出机\"",
+      "severity": null,
+      "phenomenon": "三项来自库字符串与函数命名的观察，直接影响密评结论和安全设计：\n7.1 客户端库静态内嵌 GmSSL 2.5.4 / OpenSSL 1.1.0d（2019 年分支）。\n7.2 SM9 / ECDSA / ECIES 是客户端软算法，密钥在应用进程内存里，没有受密码机硬件保护。\n7.3 FLK_Cert_CINF2Base64 是空函数但返回 0（成功）：函数体什么都不做，直接 mov eax,0; ret。调用方会拿到\"成功\"，但输出缓冲区没有被写入任何内容——比 DEF02 那批诚实返回\"不支持\"的空桩更危险。",
+      "evidence": "7.1 字符串检索命中：GmSSL 2.5.4 - OpenSSL 1.1.0d  19 Jun 2019。\n7.2 sdf.h 第 992–1014 行的 SM9 接口，函数名本身就带 _Soft_：\n_HEAD int SDF_Soft_sm9_generate_master_keys(char *pbase64_msk, char *pbase64_mpk, int key_type);\n_HEAD int SDF_Soft_sm9_generate_user_private_key(char *pbase64_msk, char *pbase64_sk, const char* user_id);\n_HEAD int SDF_Soft_sm9_sign(char *pbase64_sk, const char* data, size_t data_len, ...);\n三条佐证它是软实现：①命名带 Soft；②主私钥 msk 和用户私钥 sk 以 base64 字符串在参数里进出，密钥必然存在于应用进程内存；③库里有完整的 GmSSL SM9 实现代码（sm9_ameth.c 等字符串）。FLK_ECDSA_*、FLK_ECIES_* 同理——私钥以 char *sk 传入。\n7.3 FLK_Cert_CINF2Base64 函数体反汇编：什么都不做，直接 mov eax,0; ret。",
+      "repro": "strings libflk-x86.so | grep 'GmSSL 2.5.4'\n# → GmSSL 2.5.4 - OpenSSL 1.1.0d  19 Jun 2019\n\n7.2 的复现见 evidence 中 sdf.h 第 992–1014 行接口签名摘录与库内 sm9_ameth.c 等字符串；7.3 的复现为反汇编 FLK_Cert_CINF2Base64 函数体（mov eax,0; ret）。注：源文对 7.2/7.3 未给出命令块，此处未发明命令；上方命令块（7.1）逐字符保留。",
+      "remedy": "7.1：①这条链路上不要指望 TLS 1.3 等新版协议能力；②做软件成分分析（SCA/SBOM）时，这个内嵌版本会被扫出历史漏洞，需要在合规材料里预先说明并向厂商索取修补承诺。\n7.2：这些接口产生和使用的密钥没有受密码机硬件保护，不能在密评材料里写成\"密钥由密码机产生并保护\"。要用 SM9 且需要硬件保护，必须向厂商确认是否有非 _Soft_ 的硬件 SM9 接口及其检测认证情况。\n7.3：FLK_Cert_CINF2Base64 不要使用；若已使用，检查输出缓冲区是否被正确填充，不要只判返回值。通用教训：本 SDK 里返回 0 不等于产出了结果，凡有输出缓冲区的调用都要另行校验输出长度/内容。",
+      "affected": [
+        "SDF_Soft_sm9_*（客户端软实现，密钥出机）",
+        "FLK_ECDSA_*（私钥以 char *sk 传入，软实现）",
+        "FLK_ECIES_*（私钥以 char *sk 传入，软实现）",
+        "FLK_Cert_CINF2Base64（空函数恒返回 0）",
+        "内嵌 GmSSL 2.5.4 / OpenSSL 1.1.0d 的整条客户端链路（SCA/SBOM、TLS 能力）"
+      ],
+      "note": "源文标题无【致命/重大】等严重度标记，severity 置 null（不发明数据）。本条对应源文第七节 7.1/7.2/7.3 三个子节，按\"一节一条\"合并收录。"
+    },
+    {
+      "id": "DEF08",
+      "title": "SDF_SDKVersion_ex 的隐藏约定：缓冲区至少 7 字节",
+      "severity": null,
+      "phenomenon": "这个函数在两份文档里都没有说明输出缓冲区要多大。实测其函数体只做一件事：往调用方给的指针写入固定字符串 \"V4.2.0\" + 结尾 \\0，共 7 字节，然后返回 0。传入缓冲区不足 7 字节即栈/堆越界写。",
+      "evidence": "它返回的是编译期写死的字符串，不是从设备读来的——不能用它判断连的是哪台设备、更不能用来判断设备固件版本。函数体反汇编见 repro。",
+      "repro": "实测函数体反汇编（源文以此给出，未单独标注\"复现\"段）：\nc7 00 56 34 2e 32     mov dword [rax], \"V4.2\"\n66 c7 40 04 2e 30     mov word  [rax+4], \".0\"\nc6 40 06 00           mov byte  [rax+6], 0\nb8 00 00 00 00        mov eax, 0",
+      "remedy": "传入的缓冲区至少 7 字节，否则栈/堆越界写。另外注意它返回的是编译期写死的字符串——要取设备版本请用 SDF_GetHSMVersion_ex（该函数有真实实现）或 SDF_GetDeviceInfo。",
+      "affected": [
+        "SDF_SDKVersion_ex"
+      ],
+      "note": "源文标题无【致命/重大】等严重度标记，severity 置 null（不发明数据）。"
+    },
+    {
+      "id": "DEF09",
+      "title": "serverip.ini 的格式两份文档不一致，随包样例又是第三种",
+      "severity": null,
+      "phenomenon": "serverip.ini 的写法三处不一致（来源｜写法｜位置要求）：\nC 接口说明书｜SERVERIP=192.168.10.230:18880（带端口）｜当前运行目录或 /etc/ 目录\nJava 版说明书｜SERVERIP=192.168.10.230（不带端口）｜应用可执行程序同目录\n随包样例文件 Linux/serverip.ini、Windows/*/serverip.ini｜SERVERIP=192.168.10.155（不带端口）｜—",
+      "evidence": "库里确实存在两种解析路径的痕迹（能搜到 please set serverip.ini to this /etc path or %s 与 serverip.ini format error flagname = %d 两条日志），说明 /etc/ 兜底和格式校验都是真的。",
+      "repro": "①对库做字符串检索，确认存在日志 \"please set serverip.ini to this /etc path or %s\" 与 \"serverip.ini format error flagname = %d\"；②对照 C 接口说明书、Java 版说明书与随包样例 Linux/serverip.ini、Windows/*/serverip.ini 三处写法。注：源文此节未给出命令块，此为按源文描述整理的核对步骤；未发明任何命令。",
+      "remedy": "优先不依赖这个文件——用 SDF_SetHSM_ex(ip, port) 在代码里显式设置 IP 和端口，它是有真实实现的（非空桩），且能消除\"文件放哪、格式带不带端口\"的全部歧义，也便于多环境配置。确需用文件时，按 C 说明书的 IP:PORT 形式写，并同时放当前工作目录和 /etc/，然后用一次真实调用验证连的是哪台。",
+      "affected": null,
+      "note": "源文标题无【致命/重大】等严重度标记，severity 置 null；源文亦未给出受影响函数/平台清单，affected 置 null（不发明数据）。影响面为依赖 serverip.ini 做设备寻址的所有部署。"
+    }
+  ],
+  "trust_tiers": [
+    {
+      "tier": 1,
+      "material": "真机冒烟调用的实际返回值",
+      "credibility": "最高。任何设计决策落地前都应有这一层证据"
+    },
+    {
+      "tier": 2,
+      "material": "随库交付的 sdf.h + 二进制导出面",
+      "credibility": "高。与库同版本，本文件的全部结论出自这里"
+    },
+    {
+      "tier": 3,
+      "material": "厂商示例 test.c / testSDF.cpp",
+      "credibility": "中高。能跑通的真实调用序列，但不代表接口全集"
+    },
+    {
+      "tier": 4,
+      "material": "C 接口说明书 V4.1",
+      "credibility": "中。与库版本接近，但只覆盖 GM/T 0018 标准子集"
+    },
+    {
+      "tier": 5,
+      "material": "openApi 说明文档",
+      "credibility": "中。管理面，与 SDF 层不同域，见 KB5"
+    },
+    {
+      "tier": 6,
+      "material": "Java 版说明书（2022）",
+      "credibility": "低。错误码表已确证与头文件冲突，引用前必须核对头文件"
+    }
+  ],
+  "final_warning": "永远不要因为\"文档上写了\"就断言某个接口可用。这套 SDK 里，写了但没实现的接口至少有 21 个。"
+}

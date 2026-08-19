@@ -159,6 +159,14 @@
 - id: mpe-remediate-tools
   name: './presets/mpe-assess/mpe-remediate-tools.js'
 
+# 报告产物：直出 Excel/Word（零依赖 OOXML）
+- id: mpe-report-tools
+  name: './presets/mpe-assess/mpe-report-tools.js'
+
+# 密码机开发工具（SDF SDK 接口/错误码/结构体/实测缺陷）
+- id: hsm-tools
+  name: './presets/hsm-dev/hsm-tools.js'
+
 # 一次性任务驱动：startup 解析任务位置参数（需 bin 先 provideCmdline），
 # runner 建 agent → followup → 等静默 → 打印最终回答 → 按结果退出
 - id: kingcode-startup
