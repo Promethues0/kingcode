@@ -156,6 +156,9 @@
 - id: mpe-tools
   name: './presets/mpe-assess/mpe-tools.js'
 
+- id: mpe-remediate-tools
+  name: './presets/mpe-assess/mpe-remediate-tools.js'
+
 # 一次性任务驱动：startup 解析任务位置参数（需 bin 先 provideCmdline），
 # runner 建 agent → followup → 等静默 → 打印最终回答 → 按结果退出
 - id: kingcode-startup

@@ -115,8 +115,32 @@ const load = name => JSON.parse(readFileSync(
   check(noSource.length === 0, '每条 FAQ 带来源', `缺 ${noSource.length} 条`)
 }
 
+// ── plan-template.json（KB5）───────────────────────────────────────────────
+{
+  const p = load('plan-template.json')
+  check((p.lint_checklist ?? []).length === 15, '送审自检 15 条', `实得 ${(p.lint_checklist ?? []).length}`)
+  check((p.eight_elements ?? []).length === 8, '八要素恰 8 项', `实得 ${(p.eight_elements ?? []).length}`)
+  check((p.chapters ?? []).length >= 7, '章节树 ≥7 章', `实得 ${(p.chapters ?? []).length}`)
+  const vd = p.compliance_table?.value_domain ?? []
+  check(vd.includes('符合') && vd.includes('不适用') && !vd.includes('不符合'),
+    '对照表取值域只有 符合/不适用（禁「不符合」）', JSON.stringify(vd))
+  check((p.legacy_mapping ?? []).length >= 15, '0054→39786 映射 ≥15 行', `实得 ${(p.legacy_mapping ?? []).length}`)
+}
+
+// ── measures.json（KB6）────────────────────────────────────────────────────
+{
+  const m = load('measures.json')
+  check((m.general_patterns ?? []).length === 6, '通用改造模式 6 行', `实得 ${(m.general_patterns ?? []).length}`)
+  check((m.measures ?? []).length >= 20, '整改措施 ≥20 条', `实得 ${(m.measures ?? []).length}`)
+  check((m.priority_rules?.order ?? []).length === 5, '优先级排序法 5 级', `实得 ${(m.priority_rules?.order ?? []).length}`)
+  check((m.still_failing_cases ?? []).length === 6, '「改了仍不符合」6 种', `实得 ${(m.still_failing_cases ?? []).length}`)
+  check((m.key_mgmt_measures ?? []).length === 7, '密钥管理 7 环节改造表', `实得 ${(m.key_mgmt_measures ?? []).length}`)
+  const badLayer = (m.measures ?? []).filter(x => x.layer && !['物理和环境安全','网络和通信安全','设备和计算安全','应用和数据安全','管理制度','人员管理','建设运行','应急处置','密钥管理','通用要求'].includes(x.layer))
+  check(badLayer.length === 0, '措施层面名逐字合法', badLayer.slice(0,2).map(x=>x.layer).join(';'))
+}
+
 // ── 全部文件带 _meta 溯源 ───────────────────────────────────────────────────
-for (const name of ['indicators.json', 'high-risk.json', 'scoring.json', 'faq.json']) {
+for (const name of ['indicators.json', 'high-risk.json', 'scoring.json', 'faq.json', 'plan-template.json', 'measures.json']) {
   const d = load(name)
   check(typeof d._meta?.source === 'string', `${name} 带 _meta.source`)
 }

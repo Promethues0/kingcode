@@ -6,6 +6,7 @@
 
 import { fileURLToPath } from 'node:url'
 import * as plugin from '../presets/mpe-assess/mpe-tools.js'
+import * as remediatePlugin from '../presets/mpe-assess/mpe-remediate-tools.js'
 
 let failed = 0
 const check = (ok, label, extra = '') => {
@@ -14,13 +15,16 @@ const check = (ok, label, extra = '') => {
 }
 
 const tools = new Map()
-plugin.apply({
+const fakeCtx = {
   effect: fn => fn(),
   tools: { register: def => { tools.set(def.name, def) } },
-})
+}
+plugin.apply(fakeCtx)
+remediatePlugin.apply(fakeCtx)
 
-check(tools.size === 6, '注册 6 个工具', `实得 ${tools.size}: ${[...tools.keys()].join(',')}`)
-for (const name of ['mpe_kb_indicator', 'mpe_kb_high_risk', 'mpe_kb_faq', 'mpe_evidence_load', 'mpe_judge', 'mpe_score']) {
+check(tools.size === 10, '注册 10 个工具', `实得 ${tools.size}: ${[...tools.keys()].join(',')}`)
+for (const name of ['mpe_kb_indicator', 'mpe_kb_high_risk', 'mpe_kb_faq', 'mpe_evidence_load', 'mpe_judge', 'mpe_score',
+                    'mpe_diff', 'mpe_ledger', 'mpe_remediate', 'mpe_kb_plan']) {
   check(tools.has(name), `含 ${name}`)
 }
 
@@ -102,6 +106,69 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/mpe-evidence-sample.json', imp
     threw = /查不到/.test(error.message)
   }
   check(threw, 'score：未知指标权重响亮报错')
+}
+
+// ── 密改四工具端到端 ────────────────────────────────────────────────────────
+{
+  const r = await tools.get('mpe_kb_plan').execute({ section: 'lint' })
+  check(r.checklist.length === 15, 'kb_plan：15 条自检')
+  const r2 = await tools.get('mpe_remediate').execute({
+    gaps: [
+      { indicator: '高风险项', layer: '网络和通信安全', isHighRisk: true },
+      { indicator: '制度修订', layer: '管理制度', kind: 'mgmt' },
+    ],
+    measureQuery: '明文存储',
+  })
+  check(r2.batches[0].items[0].indicator === '高风险项', 'remediate：高风险第一批')
+  check(r2.measures !== undefined, 'remediate：措施查询有返回')
+}
+{
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'kc-ledger-'))
+  const ledgerPath = join(dir, 'ledger.json')
+  try {
+    await tools.get('mpe_ledger').execute({ action: 'init', path: ledgerPath, meta: { system: 'T' } })
+    await tools.get('mpe_ledger').execute({ action: 'add', path: ledgerPath, task: { id: 'T1', indicator: 'X', verifyPath: '复采可验' } })
+    const upd = await tools.get('mpe_ledger').execute({ action: 'apply_diff', path: ledgerPath, outcomes: [
+      { taskId: 'T1', verdict: 'effective_disappeared', evidenceNote: 'B/A 对比条目消失', paperworkDone: true },
+    ] })
+    check(upd.applied[0].state === '已闭环', 'ledger：init→add→apply_diff 端到端落盘', JSON.stringify(upd.applied))
+    const rep = await tools.get('mpe_ledger').execute({ action: 'report', path: ledgerPath })
+    check(rep.report.closureRate === 100, 'ledger：报表读回闭环率 100%')
+    let dup = false
+    try { await tools.get('mpe_ledger').execute({ action: 'init', path: ledgerPath }) } catch { dup = true }
+    check(dup, 'ledger：重复 init 拒绝覆盖')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+{
+  // mpe_diff 走真文件：用样例包自身做基线，复采用其改动副本
+  const { writeFileSync, readFileSync, mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'kc-diff-'))
+  try {
+    const base = JSON.parse(readFileSync(FIXTURE, 'utf8'))
+    const after = structuredClone(base)
+    after.collection.started_at = '2026-08-20T10:00:00+08:00'
+    // TLS1.0 条目修复：detail 变化 + 高风险消除
+    const e2 = after.findings.find(f => f.id === 'E0002')
+    e2.detail = '10.10.1.5:443 探测：TLS1.2/1.3 可用；legacy 全部 rejected'
+    delete e2.risk
+    after.high_risk = []
+    const bp = join(dir, 'baseline.json'); const ap = join(dir, 'after.json')
+    writeFileSync(bp, JSON.stringify(base)); writeFileSync(ap, JSON.stringify(after))
+    const d = await tools.get('mpe_diff').execute({ baselinePath: bp, afterPath: ap })
+    check(d.comparability.comparable === true, 'diff：同机同口径可比')
+    check(d.highRisk.cleared.length === 1 && d.highRisk.cleared[0].code === '5.2', 'diff：高风险 5.2 已消除')
+    const row = d.rows.find(r => r.title === '业务端口 TLS 探测')
+    check(row?.verdict === 'changed_needs_review', 'diff：detail 变化判待审')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 console.log(`\n${failed === 0 ? '全部通过' : `失败 ${failed} 项`}`)

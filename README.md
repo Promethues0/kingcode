@@ -180,7 +180,20 @@ presets/mpe-assess/
 
 安装：`./profile/setup.sh`（或 Windows `setup.ps1`）会把 `presets/` 下所有预设复制到 `$DSH_HOME/.agent-presets/`。CLI 侧同一份工具经 `cordis.yml` 的 `mpe-tools` 行全局可用。
 
-后续批次：密改执行（S2+S3：mpe_diff 前后对比/整改台账/交付包）、密评顾问（S0+S5）、服务器密码机技能。
+### 密改执行（第二批，已交付）
+
+模式下拉第二项「**密改执行**」——密码改造实施与整改闭环（S2+S3 重造）。新增四工具（与密评评估共享同一份实现与数据，`presets/mpe-remediate/` 经 `../mpe-assess/` 相对路径引用，避免双份漂移）：
+
+| 工具 | 干什么 |
+|---|---|
+| `mpe_diff` | 改造前后证据包对比：可比性四校验（不可比就直说重采，不硬凑）→ 三元组配对（绝不用条目 id）→ 七行判定表；新增高风险=事故级报警 |
+| `mpe_ledger` | 五状态整改台账（JSON 文件持久化）：不整改必须给理由+决策人；闭环必须证据非空；diff 结论批量回填，涉及 no_permission/indirect/out_of_scope 一律停在待取证 |
+| `mpe_remediate` | 五级优先级排序（禁「好改的先改」；长周期项带「立项提前」旗标）+ KB6 措施推荐 |
+| `mpe_kb_plan` | 方案章节树/送审自检 15 条/八要素/GM·T 0054 映射/政务门槛查询（KB5） |
+
+数据新增 `plan-template.json`（KB5）与 `measures.json`（KB6，30 个指标引用与指标库逐字对齐）。密改引擎的七行判定表、台账回填规则、可比性校验全部按 S3 原文编码并有金样例（`test/test-mpe-remediate.js`）。
+
+后续批次：密评顾问（S0+S5）、服务器密码机开发（D0-D4+KB1-6，源包在 `~/Desktop/8月/密码机开发技能包/`，KB6 实测缺陷清单为其灵魂——每条输出须附复现命令）。
 
 ## 校验
 
