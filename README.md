@@ -48,7 +48,14 @@ node bin/kingcode.js "介绍一下这个仓库"
 dsh --profile kingcode --port 3081
 ```
 
-脚本幂等：重复跑只覆盖补丁层与重装品牌插件，不动会话与凭证。
+脚本幂等：重复跑只覆盖补丁层、重装品牌/仓库插件、重装 preset，不动会话与凭证，也不改 `settings.yaml`。
+
+**模型姓 KingCode 靠的是 preset，不是 profile 补丁。** 上游把 persona 注册为全局段，而每个内置 preset（standard/code/cordis/minimal）都挂了自己的 `dsh-persona`，在 agent 作用域把全局 persona 遮蔽掉——所以 `profile/cordis.patch.yml` 里的身份句到不了模型。`presets/kingcode/`（setup 脚本装到 `$DSH_HOME/.agent-presets/kingcode/`）是 standard preset 的整份拷贝加三处叠加：KingCode 身份句（与 CLI 逐字一致）、`plugins/prompt-sections.js`（关掉一次性 CLI 的会话契约与工具取舍，换成面向交互式 Web 的取舍段）、`plugins/env-context.js`（`git: false`）。选它的两种方式：
+
+- Web 新会话的预设选择器里选「KingCode」（已开始对话的会话不能换预设，这是上游规则）；
+- 或在 `$DSH_HOME/settings.yaml` 写 `agent-presets: { default: kingcode }`，之后新会话默认就是它。setup 脚本**不替你写**——`~/.dsh` 可能与别的项目共用，默认预设是用户自己的选择。
+
+preset 里用 `kingcode/plugins/…` 引用仓库插件，靠的是脚本把仓库本身 `dsh plugin add -w` 成 profile 里的包 `kingcode`：插件在仓库原位加载，与 CLI 同一份。升级 dsh 后对照 `<dsh>/config/agent-presets/standard/agent.cordis.yml` 同步工具面行。
 
 ## 品牌层 `web-brand/`
 
@@ -239,6 +246,7 @@ node eval/run.js --update-baseline    # 把本次结果定为新基线（有 har
 - **加自定义工具**：照 `plugins/multi-edit.js`——具名导出 `name`/`inject`/`apply(ctx)`，`ctx.tools.register(defineTool({...}))`，再在 `cordis.yml` 加一行。注意：对象 schema 必须显式写 `additionalProperties`；render 必须承载模型所需的全量载荷
 - **接其他模型厂商**：OpenAI 兼容端点零代码——换 `@deepseek-ai/dsh-llm-pi-ai` 行，`providers` 里手工声明路由（`api: openai-completions` + `baseURL` + `models`）；自有协议才需要写 LlmAdapter
 - **权限门**：另写 hook 插件监听 `tools/pre-execute` waterfall，返回 `{kind:'deny'|'ask'}`；沙箱可换 `dsh-bash-sandbox` + `dsh-sandbox-policy`（参照上游 acp-agent 示例）
+- **接 MCP server**：不进根 `cordis.yml`，用独立树 `cordis.mcp.yml`（第一行 `cordis:include` 根树，之后每个 server 一行 `@deepseek-ai/dsh-mcp-client`，stdio 或 streamable-http；没有 servers 表），`kingcode --config cordis.mcp.yml "<task>"` 启用。工具名 `mcp__<serverName>__<rawName>`；仓库自带的 `test/fixtures/mcp-echo-server.js` 是示例行也是 `npm test` 的被测夹具（`mcp__echo__add`）。**务必 `failOnStartupError: true`**：server 起不来时 boot 以退出码 1 响亮失败；默认 `false` 在本 CLI 树里等于静默降级——dsh-mcp-client 的告警走 `ctx.logger`，而这棵树没有日志 sink，stderr 只能看到子进程自己的崩溃输出，模型会零工具作答。另外 server 的 inputSchema 只能用 dsh-tools 的关键字子集（带 `$schema` 的会被拒绝注册），server 挂起不退出时 boot 会等满 SDK 固有的 60s。Web/Mac/Win 形态走 `profile/cordis.patch.yml` 的 `insert`（dsh 安装自带 dsh-mcp-client），本仓库未做
 - **Code Mode**：需给 agent-spine 的 ToolRuntime 传 `tools: {mode: 'code'|'both'}` 并挂 `dsh-code-runtime-worker-thread`（注意：曾以为环境变量 `DSH_TOOLS_MODE` 可控，实测全 node_modules 无代码读它——mode 只来自 ToolRuntime 配置，该虚注释与死重条目已从 cordis.yml 移除）
 
 ## 上游生态须知（踩过的坑）

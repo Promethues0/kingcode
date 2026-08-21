@@ -8,6 +8,12 @@
  * ② section 有 order，能插在上游工具指导段（100-105）之后仲裁它们——persona
  *    在 order 0，永远排在工具段前面，说不了「这些工具之间怎么选」。
  *
+ * 按段开关：config = { sessionContract, discipline, toolRouting, webRouting }。
+ * 前三段默认开（一次性 CLI 的现状）；webRouting 默认关，是给交互式 Web 形态
+ * （presets/kingcode/agent.cordis.yml）用的——那里 sessionContract/toolRouting 说的
+ * 不是实话（Web 有 ask_user_question / plan mode，subagent 是 continuable 后台默认，
+ * bash 执行器默认 60s，web_fetch 关着），要关掉并换成 webRouting。关掉的段不注册。
+ *
  * Loader 插件必须具名导出（default export 会静默丢 inject）。
  */
 
@@ -49,12 +55,44 @@ export const TOOL_ROUTING = `Choosing among the tools above:
 - Shell commands time out after 120s by default (cap 600s). Pass timeoutMs explicitly for builds, installs, or test suites that legitimately run longer.`
 
 /**
- * 注册三段。order 见各常量注释；1/5/199 都在空闲频段
- * （上游占用：-100 identity、0 persona、100-105 各工具、116.5 subagent）。
- * @param ctx - 插件上下文（需 systemPrompt 服务）。
+ * 交互式 Web 形态的工具取舍（order 199，与 TOOL_ROUTING 互斥，同一频位）。
+ * 每一条都对照 standard preset 与 dsh web 组合树的实况写（见 presets/kingcode/
+ * agent.cordis.yml 头注释）：ask_user_question 存在、plan mode 存在、subagent 是
+ * continuable（上游 tool:subagent 段已经说「默认后台」，这里只补它说漏的）、
+ * bash-sandbox 默认 60s、tool-web 只开 web_search。
  */
-export function apply(ctx) {
-  ctx.systemPrompt.section({ name: 'kingcode:session-contract', order: 1, text: SESSION_CONTRACT })
-  ctx.systemPrompt.section({ name: 'kingcode:discipline', order: 5, text: DISCIPLINE })
-  ctx.systemPrompt.section({ name: 'kingcode:tool-routing', order: 199, text: TOOL_ROUTING })
+export const WEB_ROUTING = `Choosing among the tools above:
+
+- Use grep and glob to find code. They are faster than shell equivalents, and they avoid the quoting and escaping mistakes that bash -c invites. Reach for bash for running things, not for searching.
+- Use todo_write only when the task genuinely has three or more distinct steps worth tracking. For a single edit or a lookup it is pure overhead.
+- This is an interactive session: the user reads your messages and can reply. Use ask_user_question for choices only the user can make — which of two valid designs, whether to touch files outside the request — and never for facts you can discover by reading the repository. Prefer one question with concrete options over an open-ended one. The user may also put the session in plan mode; while it is active, the plan-mode instructions take precedence over these.
+- Delegate only self-contained investigations whose conclusion is all you need back; delegates return text, not edits — make the edits yourself. A subagent cannot ask the user anything: give it everything it needs in the task text, and expect unresolved decisions to come back in its result.
+- web_fetch is not available here; web_search returns an answer plus source snippets, so cite those. For code in this repository, read the code; the web tool is for the world outside it.
+- Shell commands time out after 60s by default. Pass timeoutMs explicitly for builds, installs, or test suites that legitimately run longer; use run_in_background only for processes that must outlive the call (dev servers, watchers) and collect them with job_output.`
+
+/** 默认配置：一次性 CLI 的现状。 */
+export const DEFAULT_CONFIG = Object.freeze({
+  sessionContract: true,
+  discipline: true,
+  toolRouting: true,
+  webRouting: false,
+})
+
+/**
+ * 按开关注册各段。order 见各常量注释；1/5/199 都在空闲频段
+ * （上游占用：-100 identity、0 persona、50 plan:policy、100-116 各工具）。
+ * toolRouting 与 webRouting 同占 199：两者互斥，同时打开会重名以外的方式撞 order，
+ * 所以这里 fail loud 而不是悄悄注册两段。
+ * @param ctx - 插件上下文（需 systemPrompt 服务）。
+ * @param config - 四个 boolean 开关，缺省见 DEFAULT_CONFIG。
+ */
+export function apply(ctx, config = {}) {
+  const flags = { ...DEFAULT_CONFIG, ...config }
+  if (flags.toolRouting && flags.webRouting) {
+    throw new Error('kingcode-prompt-sections: toolRouting and webRouting are mutually exclusive (one describes the one-shot CLI, the other the interactive Web); enable exactly one')
+  }
+  if (flags.sessionContract) ctx.systemPrompt.section({ name: 'kingcode:session-contract', order: 1, text: SESSION_CONTRACT })
+  if (flags.discipline) ctx.systemPrompt.section({ name: 'kingcode:discipline', order: 5, text: DISCIPLINE })
+  if (flags.toolRouting) ctx.systemPrompt.section({ name: 'kingcode:tool-routing', order: 199, text: TOOL_ROUTING })
+  if (flags.webRouting) ctx.systemPrompt.section({ name: 'kingcode:web-routing', order: 199, text: WEB_ROUTING })
 }

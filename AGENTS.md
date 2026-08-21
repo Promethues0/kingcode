@@ -50,6 +50,12 @@ errorCode/emptyOutput/exitCode），给 eval harness 判分用。
   `.kingcode/sessions-plain`（明文）。**两者不能共用一个 root**，混放会 fail-loud。
 - `mac/`、`win/`、`web-brand/`、`profile/`：客户端外壳与品牌层，与 CLI 共用同一棵
   组合树的引擎。
+- `cordis.mcp.yml`：MCP 按需树——第一行 `cordis:include` 根树，之后每个 server 一行
+  `@deepseek-ai/dsh-mcp-client`（一实例一 server，无 servers 表；工具名
+  `mcp__<serverName>__<rawName>`），`kingcode --config cordis.mcp.yml` 启用。server 行
+  **必须 `failOnStartupError: true`**：本 CLI 树没有 logger sink，默认 false 的「警一句
+  后零工具」在这里是无声的。夹具 `test/fixtures/mcp-echo-server.js` 同时是示例 server
+  与 `npm test` 的被测对象；MCP 行不进根树，所以 eval 树也不受影响。
 - 测试是零依赖裸 node 脚本（check/eq 模式），纪律：金样例对原文、期望值由
   清单推导不手算、独立第三方回读、不编造补齐数据。
 

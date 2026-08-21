@@ -89,6 +89,21 @@ const sh = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', std
   check(provider({}).includes('date: 2026-01-31'), 'provider 使用注入的时钟')
 }
 
+// ---- git: false（Web 预设）：不 spawn、不写 git 行，日期/平台照常 ----
+
+{
+  let calls = 0
+  const exec = (...args) => { calls++; return execFileSync(...args) }
+  const text = createProvider({ cwd: process.cwd(), exec, git: false })({})
+  eq(calls, 0, 'git: false 时完全不跑 git')
+  check(!text.includes('git:'), 'git: false 时没有 git 行')
+  check(text.includes(`date: ${today}`) && text.includes('platform:'), 'git: false 时日期与平台照常')
+  const { contexts: [c] } = collect({ git: false })
+  check(!c.text({}).includes('git:'), 'apply 传 git: false 同样生效')
+  const { contexts: [d] } = collect({})
+  check(d.text({}).includes('git:'), '不传 git 时默认仍写 git 行')
+}
+
 // ---- 真实临时 git 仓库：分支名、clean → dirty、unborn、detached ----
 
 const root = mkdtempSync(join(tmpdir(), 'kingcode-env-context-'))

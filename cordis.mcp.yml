@@ -1,0 +1,49 @@
+# KingCode 的 MCP 组合树 —— 按需启用：
+#     kingcode --config cordis.mcp.yml "<task>"
+#
+# 第一行 include 根 cordis.yml（整棵编程智能体树原样复用），之后每行一个
+# MCP server（@deepseek-ai/dsh-mcp-client 是「一实例一 server」的形状，没有
+# servers 表；多 server 就多写几行，serverName 不得重复）。server 的工具以
+# mcp__<serverName>__<rawName> 注册进 ctx.tools，模型看到的就是这个名字。
+#
+# 为什么是独立树而不是写进根 cordis.yml：没装对应 server 的用户不该在每次
+# 调用里多付一个插件行、一份 MCP SDK 导入、和一串「连不上」的告警；工具集
+# 应是你传的 --config 的纯函数，而不是随某个用户级文件悄悄变化。eval 树派生
+# 自根树，也因此不会被 MCP 行污染。
+#
+# 路径语义：本文件里的相对 name（'./cordis.yml'、裸包名）都相对本文件所在目录
+# 解析，所以它必须留在仓库根；server 的 cwd 用 ctx.baseUrl 钉到仓库根，
+# 与调用 kingcode 时的工作目录无关。
+#
+# 失败语义（如实记录，见 README「MCP 接入」）：
+#   failOnStartupError: true  → server 起不来 / tools/list 失败时 boot 直接
+#                               fail-loud 退出码 1（一次性 CLI 该如此：你显式
+#                               选了 MCP 树，server 死了就该是错误，不是降级）。
+#   默认 false                 → 零工具挂载、后台按退避重连（默认 10 次、最长
+#                               30s 间隔），模型在不知情的情况下无工具作答、
+#                               退出码仍是 0。dsh-mcp-client 的告警走
+#                               ctx.logger，而本 CLI 树没有日志 sink——实测
+#                               stderr 只有子进程自己的崩溃输出，没有一行
+#                               "mcp-client(echo): …"。所以这里不许用默认值。
+#   server 挂起不退出          → SDK 固有 60s initialize 超时，boot 会等满。
+
+- id: kingcode-base
+  name: 'cordis:include'
+  config:
+    path: './cordis.yml'
+
+# 示例 server：仓库自带的零依赖 echo 夹具（test/fixtures/mcp-echo-server.js），
+# 暴露 mcp__echo__echo 与 mcp__echo__add。它同时是 npm test 的被测对象与本树的
+# 冒烟样本；接你自己的 server 时照这行改 serverName/command/args（stdio），
+# 或换 transport: streamable-http + url/headers（见 dsh-mcp-client README）。
+- id: mcp-echo
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: echo
+    transport: stdio
+    # 用当前 node 本身，而不是 PATH 上碰巧的那个 node
+    command: !!js process.execPath
+    args: ['test/fixtures/mcp-echo-server.js']
+    cwd: !!js "decodeURIComponent(new URL('.', ctx.baseUrl).pathname)"
+    toolCallTimeoutMs: 30000
+    failOnStartupError: true

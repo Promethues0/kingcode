@@ -1,0 +1,218 @@
+# KingCode 的 agent preset —— 让 Web / Mac / Win 客户端里的模型真正姓 KingCode。
+#
+# 为什么需要它：上游 system-prompt 把 persona 注册为全局 `deployment:persona` 段，
+# 而随 dsh 发行的每个内置 preset（standard/code/cordis/minimal）都挂了 dsh-persona 行，
+# 在 agent 作用域遮蔽全局 persona——profile/cordis.patch.yml 里改的身份句到不了模型。
+# preset 层没有 patch 语义（上游自己的 cordis/code 也是 standard 的整份拷贝），
+# 所以这里是 standard preset 的整份拷贝 + 三处叠加：
+#   ① persona 换成 KingCode 身份句（与根 cordis.yml 逐字一致；纪律不写在这里）；
+#   ② 挂本仓库的 prompt-sections（关掉一次性 CLI 的两段，开 Web 取舍段）；
+#   ③ 挂本仓库的 env-context（git: false——一个 dsh 进程服务多个工作区，
+#      process.cwd() 不是会话的工作区，git 行只会说错话）。
+# 其余行**逐行照抄** <dsh>/config/agent-presets/standard/agent.cordis.yml（0.1.0-rc.6），
+# 升级 dsh 时对照那份同步，别在这里自己发明工具面。
+#
+# 路径解析（dsh-agent-presets README「How a preset's rows resolve」）：包名从 host
+# 组合（profile 目录）解析，相对路径从本 preset 目录解析。本仓库的两个插件用包名
+# `kingcode/plugins/...` 引用——setup.sh 用 `dsh plugin --profile kingcode add -w $REPO`
+# 把仓库 link 成 profile 里的包 `kingcode`（根 package.json 无 exports 字段，子路径
+# 可直接 import）。不复制文件：env-context.js 依赖 @deepseek-ai/schemastery，复制到
+# $DSH_HOME/.agent-presets/ 下 Node 的 node_modules 上溯找不到它；link 则两个插件
+# 都在仓库原位加载，与 CLI 同一份，没有第二份副本可漂移。
+#
+# 服务行必须在带 isolate realm 的 group 里（上游注释原文见 standard preset）；
+# persona / prompt-sections / env-context 只注册 section/context、不 provide 服务，
+# 与 tool-fs 同类，无需 realm。
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# 与根 cordis.yml 的 persona 逐字一致。
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |
+      You are KingCode, an expert coding agent powered by the {{model}} model.
+      Your working directory is {{cwd}}.
+
+      Respond in the language the user uses.
+
+# 工作纪律 + Web 工具取舍。sessionContract / toolRouting 是为一次性 CLI 写的
+# （「没有第二轮」「subagent 只能 one-shot」「web_fetch 可用」），在这里是假话，关掉。
+- id: kingcode-prompt-sections
+  name: 'kingcode/plugins/prompt-sections.js'
+  config:
+    sessionContract: false
+    discipline: true
+    toolRouting: false
+    webRouting: true
+
+# 日期 / 平台（context 而非 section：只在文本变化时重新注入）。
+- id: kingcode-env-context
+  name: 'kingcode/plugins/env-context.js'
+  config:
+    git: false
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000

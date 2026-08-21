@@ -23,8 +23,12 @@ export const name = 'kingcode-env-context'
 
 export const inject = ['systemPrompt']
 
-/** cwd 默认取进程 cwd，与 fs-local 的 `cwd: !!js process.cwd()` 同源。 */
-export const Config = z.object({ cwd: z.string() })
+/**
+ * cwd 默认取进程 cwd，与 fs-local 的 `cwd: !!js process.cwd()` 同源。
+ * git: false 时不拍 git 快照、不写 git 行——给 Web 预设用：那里一个 dsh 进程服务多个
+ * 工作区会话，process.cwd() 是服务进程的目录而不是会话的工作区，git 行只会说错话。
+ */
+export const Config = z.object({ cwd: z.string(), git: z.boolean().default(true) })
 
 /** context 名与 order。上游已占：110 sandbox:policy、115 approval:policy、120 subagent:delegation；环境事实排最前。 */
 export const CONTEXT_NAME = 'kingcode:env'
@@ -117,8 +121,8 @@ export function renderEnvContext({ date, git: gitLine }) {
     'Environment:',
     `date: ${date}`,
     `platform: ${process.platform} ${process.arch}, node ${process.version}`,
-    gitLine,
   ]
+  if (gitLine !== undefined) lines.push(gitLine)
   return lines.join('\n').replaceAll('{{', '{ {')
 }
 
@@ -127,9 +131,10 @@ export function renderEnvContext({ date, git: gitLine }) {
  * @param options.cwd - git 检查目录，默认 process.cwd()。
  * @param options.exec - 可替换的 execFileSync。
  * @param options.now - 可替换的时钟（返回 Date）。
+ * @param options.git - false 则完全不碰 git（不 spawn、不写 git 行）。
  */
-export function createProvider({ cwd = process.cwd(), exec = execFileSync, now = () => new Date() } = {}) {
-  const gitLine = describeGit(snapshotGit(cwd, exec))
+export function createProvider({ cwd = process.cwd(), exec = execFileSync, now = () => new Date(), git = true } = {}) {
+  const gitLine = git ? describeGit(snapshotGit(cwd, exec)) : undefined
   return () => {
     try {
       return renderEnvContext({ date: localIsoDate(now()), git: gitLine })
@@ -143,12 +148,12 @@ export function createProvider({ cwd = process.cwd(), exec = execFileSync, now =
 /**
  * 注册一条运行时上下文。
  * @param ctx - 插件上下文（需 systemPrompt 服务）。
- * @param config - 可选 `{ cwd }`。
+ * @param config - 可选 `{ cwd, git }`。
  */
 export function apply(ctx, config = {}) {
   ctx.systemPrompt.context({
     name: CONTEXT_NAME,
     order: CONTEXT_ORDER,
-    text: createProvider({ cwd: config.cwd ?? process.cwd() }),
+    text: createProvider({ cwd: config.cwd ?? process.cwd(), git: config.git ?? true }),
   })
 }
