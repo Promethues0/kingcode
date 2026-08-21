@@ -5,6 +5,9 @@
  * （DEEPSEEK_API_KEY 等），再把去掉自有旗标后的参数经 provideCmdline
  * 交给树内的 headless-startup 解析。stdout 是产品输出（最终回答），
  * 诊断一律走 stderr。
+ *
+ * 退出码：0=完成且有回答；3=完成但零输出；1=其余（见 plugins/runner.js
+ * 的 exitCodeFor）。
  */
 
 import { fileURLToPath } from 'node:url'

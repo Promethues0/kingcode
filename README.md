@@ -12,7 +12,9 @@ CLI、Web、Mac 客户端、Windows 客户端四种形态**共用同一棵 dsh �
 kingcode "跑一下测试并修复失败"
 ```
 
-接一个任务 → agent 干活（bash/文件/子代理/todo 全套工具）→ stdout 打印最终回答 → 按结果退出（completed=0，否则 1）。适合终端与 CI。
+接一个任务 → agent 干活（bash/文件/glob/grep/子代理/todo 全套工具）→ stdout 打印最终回答 → 按结果退出。适合终端与 CI。
+
+**退出码契约**：0 = 完成且有回答；3 = 完成但助手零输出（不该被 CI 当成功）；1 = 其余（错误/未收敛/参数错）。设 `KINGCODE_RESULT_FILE=<path>` 可额外落一行机读 JSON（sessionId / reasonKind / errorCode / emptyOutput / exitCode），给评测 harness 判分用。
 
 **结构**：
 
@@ -22,7 +24,8 @@ kingcode "跑一下测试并修复失败"
 | `cordis.yml` | 组合树：每行一个插件 `{id, name, config}`，这就是 KingCode 的「配方」 |
 | `plugins/startup.js` | 解析任务位置参数与 `--help`，发布 `headlessStartup` 服务 |
 | `plugins/runner.js` | 一次性任务驱动：建 agent → followup → 等静默 → 打印 → 定退出码 |
-| `plugins/project-stats.js` | 自定义工具示例：`project_stats` 按扩展名统计项目文件 |
+| `plugins/multi-edit.js` | 自定义工具：`multi_edit` 批量字面替换（可跨文件、按文件原子） |
+| `plugins/prompt-sections.js` | 系统提示词补充段：一次性会话契约 / 工作纪律 / 工具取舍 |
 
 **首次使用**：
 
@@ -174,77 +177,30 @@ dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pws
 
 但要知道：**上游 README 从未提及 Windows**，也没有平台支持矩阵。他们的 CI 有 Windows 通道，可其中真正跑 dsh 二进制端到端冒烟的那条被显式标成 `allowFailure`，**不阻塞合并**。也就是说 Windows 是「能跑、有人在意，但不是被保证的路径」。
 
-## 密评评估（基础技能 · 第一批）
-
-会话模式下拉里的「**密评评估**」预设——商用密码应用安全性评估（GB/T 39786）全流程，源自安小龙密评技能包的重造。安小龙形态下查表/算分/判定全靠提示词教模型做（打一次分 ≥6-10 轮对话，手算加权平均是幻觉重灾区）；KingCode 里确定性工作全部下沉为工具，目标 1-2 轮出结论。
-
-```
-presets/mpe-assess/
-├── preset.yml + agent.cordis.yml   # 会话预设（persona 铁律 + 全套编码工具 + 密评工具/技能）
-├── mpe-tools.js                    # 6 个工具（零 @deepseek-ai import，可随目录复制）
-├── lib/                            # 纯函数引擎：kb 查询 / 证据包解析 / D-A-K 预判 / 四级算分
-├── data/                           # KB1-KB4 结构化数据（50 指标/16 高风险/41 权重行/56 FAQ，AI 转换+全量核验）
-└── skills/mpe-assess/SKILL.md      # 方法论技能（S1+S4 收编，/mpe-assess 可显式调用）
-```
-
-| 工具 | 干什么 |
-|---|---|
-| `mpe_kb_indicator` | 指标查表：各级助动词/条款号/权重/取证要点（判定前必查，不背标准） |
-| `mpe_kb_high_risk` | 16 项高风险 + 8 条无缓解死条款 + 算法/协议黑名单 |
-| `mpe_kb_faq` | FAQ 口径检索；命中「无权威口径清单」时如实说查不到 |
-| `mpe_evidence_load` | mpe-evidence/1.0 证据包校验 + 审计红线 + 覆盖度三分 |
-| `mpe_judge` | 确定性 D/A/K 预判（黑名单/TLCP 六态/强度四态路由）+ 待确认清单 |
-| `mpe_score` | 四级算分 + 未测评上下界四数 + 高风险 veto + 结论（过程可复核） |
-
-**不许编造的边界**（数据与引擎双层守护）：结论阈值在公开材料中无权威数值——`scoring.json` 的 `threshold.value` 是 `null`，引擎在阈值缺失时如实输出 `indeterminate` 而不是偷偷用 60；证据强度四态铁律（no_permission/out_of_scope 一律「未测评」出区间，绝不写成结论）编码在引擎里。数据溯源见 `presets/mpe-assess/data/SOURCES.md`。
-
-安装：`./profile/setup.sh`（或 Windows `setup.ps1`）会把 `presets/` 下所有预设复制到 `$DSH_HOME/.agent-presets/`。CLI 侧同一份工具经 `cordis.yml` 的 `mpe-tools` 行全局可用。
-
-### 密改执行（第二批，已交付）
-
-模式下拉第二项「**密改执行**」——密码改造实施与整改闭环（S2+S3 重造）。新增四工具（与密评评估共享同一份实现与数据，`presets/mpe-remediate/` 经 `../mpe-assess/` 相对路径引用，避免双份漂移）：
-
-| 工具 | 干什么 |
-|---|---|
-| `mpe_diff` | 改造前后证据包对比：可比性四校验（不可比就直说重采，不硬凑）→ 三元组配对（绝不用条目 id）→ 七行判定表；新增高风险=事故级报警 |
-| `mpe_ledger` | 五状态整改台账（JSON 文件持久化）：不整改必须给理由+决策人；闭环必须证据非空；diff 结论批量回填，涉及 no_permission/indirect/out_of_scope 一律停在待取证 |
-| `mpe_remediate` | 五级优先级排序（禁「好改的先改」；长周期项带「立项提前」旗标）+ KB6 措施推荐 |
-| `mpe_kb_plan` | 方案章节树/送审自检 15 条/八要素/GM·T 0054 映射/政务门槛查询（KB5） |
-
-数据新增 `plan-template.json`（KB5）与 `measures.json`（KB6，30 个指标引用与指标库逐字对齐）。密改引擎的七行判定表、台账回填规则、可比性校验全部按 S3 原文编码并有金样例（`test/test-mpe-remediate.js`）。
-
-### 密码机开发（第三批，已交付）
-
-模式下拉第三项「**密码机开发**」——服务器密码机（FLK SDF SDK）对接开发。这套 SDK 的特点是**三份厂商文档互相打架且都与随库二进制对不上**，技能包的价值正在于把文档没说、说错、说反的部分补上。
-
-| 工具 | 干什么 |
-|---|---|
-| `hsm_diagnose` | 错误码分诊：段位→故障域→第一反应查什么；报易混码与 Java 文档冲突告警 |
-| `hsm_kb_api` | 接口速查（🟢有样例/🟡仅声明/🔴**空桩必失败**）；**合并 KB1 与 KB6 两份空桩清单** |
-| `hsm_kb_struct` | 结构体与算法标识（SM2 的 32 字节右对齐是 90% 互操作故障根源） |
-| `hsm_kb_defect` | 实测缺陷；**返回必带复现命令**，缺了直接报错拒绝返回 |
-
-数据：`hsm-api.json`（203 条枚举，源文头部称 229、其中 26 条未逐条列出——两个数都记，不编造补齐）、`hsm-errcode.json`（7 段位/114 码/9 个 Java 文档冲突码）、`hsm-struct.json`（16 节/10 结构体/36 算法标识）、`hsm-defects.json`（9 条实测缺陷，复现命令逐字节核验）。KB4/KB5 代码样板作技能资源随目录走。
-
-**跨 KB 合并的必要性**：KB1 速查表标了 18 个空桩，KB6 二进制实测确证 21 个（+1 个仅 ARM64）。只看 KB1 会漏 4 个，而漏掉的每一个都会让人写出「能编译、能链接、调用必失败」的代码——所以 `hsm_kb_api` 合并两个来源。
-
-### 报告产物：Excel / Word
-
-密评密改的交付物要进甲方与测评机构的流程，那边是 Excel 和 Word 的世界。`mpe_report_xlsx`（多工作表、表头冻结+自动筛选、数字保持可计算）与 `mpe_report_docx`（标题层级、表格、换行）**直出 .xlsx/.docx，不出 markdown**，工具层直接拒绝非法扩展名。
-
-零依赖实现（`lib/ooxml.js` 手写 ZIP + OOXML）——preset 会被复制到 `~/.dsh/.agent-presets/`，那里没有 node_modules。产物用 **openpyxl 与 python-docx 独立回读校验**（`npm run verify:ooxml`），自己生成自己解析不算数。
-
-后续批次：密评顾问（S0+S5）、抗量子资产测绘（本地 `node:tls` 真实握手，不依赖 MCP）。
-
 ## 校验
 
 ```bash
-npm test              # project_stats 工具的无头测试（不调模型）
+npm test              # 全部无头测试（不起 agent、不调模型）
 npm run check:contrast # 配色的 WCAG + 色弱守卫
 npm run smoke         # 无钥烟测：应恰好死在 MISSING_CREDENTIAL
+npm run eval          # agent 行为评测：真跑任务集并与基线对比（真调模型）
 ```
 
 `npm test` 直接拿 `defineTool` 的定义驱动 `execute`，不起 agent 也不调模型，所以没有 API key 也能跑。
+
+### 行为评测 `eval/`
+
+无头测试守的是「函数对不对」，`npm run eval` 守的是**「agent 干得对不对」**——改一行 persona、换个模型、调压缩阈值，行为是变强还是变弱，这里才看得见。
+
+```bash
+npm run eval                          # 全量跑，与 eval/baseline.json 对比
+node eval/run.js --task fix-slug      # 单任务
+node eval/run.js --update-baseline    # 把本次结果定为新基线
+```
+
+**判分零 LLM 参与**：复跑测试看退出码、stdout 正则、对夹具独立复算期望值——判分器不问模型，也不写死期望数字。修复类任务还会把测试文件与原件逐字节比对，堵掉「改测试而不是改代码」这条捷径。
+
+评测用 `eval/cordis.eval.yml`（派生自根 `cordis.yml`，改根文件时对照同步）：换便宜的 flash 模型、会话根隔离，且**刻意不挂 `dsh-settings-file`**——否则本机 `settings.yaml` 的模型选择会盖掉组合层，评测口径被个人设置污染。
 
 **`npm run smoke` 会真的发一次模型请求**（如果凭证可用）——它验证的是「组合树能挂起来并走到模型边界」，不是离线检查。没有凭证时会停在 `MISSING_CREDENTIAL`；有凭证时会实际调用一次。期望值由测试里的 `FIXTURE` 清单推导而非手写常量——第一版手算样本文件数算错了，报了 5 个假失败。
 
@@ -274,10 +230,10 @@ npm run smoke         # 无钥烟测：应恰好死在 MISSING_CREDENTIAL
 
 - **人格/系统提示词**：`cordis.yml` 里 `agent-spine` 行的 `persona`（支持 `{{model}}`/`{{cwd}}` 模板）
 - **默认模型**：`agent-default-model` 行（provider 路由 + model id；现为 `deepseek-official` / `deepseek-v4-pro`）
-- **加自定义工具**：照 `plugins/project-stats.js`——具名导出 `name`/`inject:['tools']`/`apply(ctx)`，`ctx.tools.register(defineTool({...}))`，再在 `cordis.yml` 加一行。注意：对象 schema 必须显式写 `additionalProperties`
+- **加自定义工具**：照 `plugins/multi-edit.js`——具名导出 `name`/`inject`/`apply(ctx)`，`ctx.tools.register(defineTool({...}))`，再在 `cordis.yml` 加一行。注意：对象 schema 必须显式写 `additionalProperties`；render 必须承载模型所需的全量载荷
 - **接其他模型厂商**：OpenAI 兼容端点零代码——换 `@deepseek-ai/dsh-llm-pi-ai` 行，`providers` 里手工声明路由（`api: openai-completions` + `baseURL` + `models`）；自有协议才需要写 LlmAdapter
 - **权限门**：另写 hook 插件监听 `tools/pre-execute` waterfall，返回 `{kind:'deny'|'ask'}`；沙箱可换 `dsh-bash-sandbox` + `dsh-sandbox-policy`（参照上游 acp-agent 示例）
-- **Code Mode**：`DSH_TOOLS_MODE=code|both` 让模型用 JS 编排工具（`code-runtime` 行已挂）
+- **Code Mode**：需给 agent-spine 的 ToolRuntime 传 `tools: {mode: 'code'|'both'}` 并挂 `dsh-code-runtime-worker-thread`（注意：曾以为环境变量 `DSH_TOOLS_MODE` 可控，实测全 node_modules 无代码读它——mode 只来自 ToolRuntime 配置，该虚注释与死重条目已从 cordis.yml 移除）
 
 ## 上游生态须知（踩过的坑）
 

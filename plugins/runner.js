@@ -8,12 +8,17 @@
  *    暴露宿主实现。
  * ② 核心服务缺失时上游是静默 `return`（进程会挂着不退、也不报错，
  *    看起来像卡死）；这里改成响亮报错并以非零码退出。
- * ③ 助手一句话都没产出时明确说明，而不是打印一个空行让人以为成功了。
+ * ③ 助手一句话都没产出时明确说明，而不是打印一个空行让人以为成功了——
+ *    且退出码是 3 不是 0（见 exitCodeFor），CI 不该把「没有答案」当成功。
+ *
+ * 机读结果：环境变量 KINGCODE_RESULT_FILE 指定路径时，退出前落一行 JSON
+ * {sessionId, reasonKind, errorCode, emptyOutput, exitCode}，给 eval harness 判分用。
  *
  * Loader 插件必须具名导出（default export 会丢 inject）。
  */
 
 import { randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -37,7 +42,7 @@ export const internals = {
  * @param firstSeq - 本轮开始时的序号，之前的都不算。
  * @returns 最终文本与结束原因。
  */
-function summarize(events, firstSeq) {
+export function summarize(events, firstSeq) {
   let started = false
   let text = ''
   let reason
@@ -55,6 +60,43 @@ function summarize(events, firstSeq) {
     if (event.type === 'turn/end') reason = event.data.reason
   }
   return { text, reason }
+}
+
+/**
+ * 退出码契约：0=完成且有回答；3=完成但零输出（CI 不该把「没有答案」当成功）；
+ * 其余（错误/未收敛）=1。3 仍是非零，不破坏「非零即失败」的外部脚本。
+ * @param outcome - summarize 的结果。
+ * @returns 进程退出码。
+ */
+export function exitCodeFor(outcome) {
+  if (outcome.reason?.kind !== 'completed') return 1
+  return outcome.text === '' ? 3 : 0
+}
+
+/**
+ * KINGCODE_RESULT_FILE 已设时落一份机读结果（eval harness 的判分入口）。
+ * 写失败不改变任务退出码，但要在 stderr 说清楚——harness 找不到文件时
+ * 不该只能靠猜。
+ * @param sessionId - 本次会话 id（对应 ./.kingcode/sessions 下的持久化文件）。
+ * @param outcome - summarize 的结果。
+ * @param exitCode - 已定的退出码。
+ * @param io - 进程副作用。
+ */
+function writeResultFile(sessionId, outcome, exitCode, io) {
+  const path = process.env['KINGCODE_RESULT_FILE']
+  if (path === undefined || path === '') return
+  const record = {
+    sessionId,
+    reasonKind: outcome.reason?.kind ?? null,
+    errorCode: outcome.reason?.error?.code ?? null,
+    emptyOutput: outcome.text === '',
+    exitCode,
+  }
+  try {
+    writeFileSync(path, JSON.stringify(record) + '\n')
+  } catch (error) {
+    io.stderr.write(`kingcode: 结果文件写入失败（${path}）：${error instanceof Error ? error.message : String(error)}\n`)
+  }
 }
 
 /**
@@ -85,8 +127,9 @@ async function run(ctx, task, io) {
   }
 
   const selection = defaultModel.currentSelection()
+  const sessionId = SessionId(`session-${randomUUID()}`)
   const { agent } = await agents.create({
-    sessionId: SessionId(`session-${randomUUID()}`),
+    sessionId,
     meta: { cwd: process.cwd() },
     agentOptions: { provider: selection.provider, model: selection.model },
     setup: agentCtx => {
@@ -113,7 +156,9 @@ async function run(ctx, task, io) {
   if (outcome.reason?.kind === 'error') {
     io.stderr.write(`kingcode: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`)
   }
-  io.exit(outcome.reason?.kind === 'completed' ? 0 : 1)
+  const exitCode = exitCodeFor(outcome)
+  writeResultFile(sessionId, outcome, exitCode, io)
+  io.exit(exitCode)
 }
 
 /**
@@ -128,7 +173,8 @@ export function apply(ctx, config) {
   }
   const io = { stdout: internals.stdout, stderr: internals.stderr, exit }
   run(ctx, config.task, io).catch(error => {
-    io.stderr.write(`kingcode: ${error instanceof Error ? error.message : String(error)}\n`)
+    // 打全栈与 cause 链——agents.create/loader 阶段的失败只给 message 等于让人猜
+    io.stderr.write(`kingcode: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
     io.exit(1)
   })
 }

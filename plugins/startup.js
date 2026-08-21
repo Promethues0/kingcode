@@ -16,10 +16,14 @@ function kingcodeCommand() {
     .description('KingCode — a coding agent built on DeepSeek Harness. Answer one task, print the final assistant message, and exit.')
     .helpOption('-h, --help', 'show this help')
     .argument('[task...]', 'the task text; multiple words are joined by spaces')
+    // 任务文本里带 - 开头的词（如 `kingcode fix the --verbose flag`）不该被当成未知选项拒收
+    .passThroughOptions()
     .addHelpText('after', `
 Examples:
   kingcode "run the tests and fix any failure"
   kingcode --config ./other.cordis.yml "explain this repo"
+
+Quote the whole task when it contains words starting with "-".
 `)
 }
 

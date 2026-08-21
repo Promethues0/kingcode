@@ -1,0 +1,55 @@
+{
+  "schema": "kingcode-eval-result/1",
+  "runId": "2026-08-21T06-47-48-123Z",
+  "config": "eval/cordis.eval.yml",
+  "model": "deepseek-v4-flash",
+  "runDirRoot": "/var/folders/7c/0twl7j6n7kg2x1m4r3nzlpdc0000gn/T/kingcode-eval/2026-08-21T06-47-48-123Z",
+  "partial": false,
+  "tasks": [
+    {
+      "id": "find-result-writer",
+      "description": "检索 plugins/runner.js：写机读结果文件的函数叫什么名字",
+      "judge": "stdout 正则匹配 \\bwriteResultFile\\b 且退出码为 0",
+      "pass": true,
+      "detail": "答案含 writeResultFile 且退出码 0",
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 4188,
+      "sessionId": "session-1fe033cd-5da5-4350-84c5-853ff25a65b0",
+      "reasonKind": "completed",
+      "errorCode": null
+    },
+    {
+      "id": "fix-slug",
+      "description": "修复 slugify 缺小写导致的 5 项测试失败（禁改 test.js）",
+      "judge": "判分器复跑 node test.js 看退出码 + test.js 与原件逐字节比对",
+      "pass": true,
+      "detail": "复跑测试通过；agent 退出码 0",
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 9517,
+      "sessionId": "session-8d643fdf-06b3-4e72-ba7d-4674a271a2d0",
+      "reasonKind": "completed",
+      "errorCode": null
+    },
+    {
+      "id": "summarize-picks",
+      "description": "检索 runner.summarize：一轮多条助手消息时取哪一条当最终回答",
+      "judge": "stdout 正则匹配 PICKS=last_nonempty 且无其他 PICKS 值",
+      "pass": true,
+      "detail": "PICKS=last_nonempty 且无杂音",
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 6679,
+      "sessionId": "session-a4fcd565-274d-4d94-948d-31cf1d4b13dc",
+      "reasonKind": "completed",
+      "errorCode": null
+    }
+  ],
+  "totals": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "durationMs": 20384
+  }
+}

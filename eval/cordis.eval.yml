@@ -1,0 +1,209 @@
+# KingCode eval 专用组合树 —— 派生自仓库根 cordis.yml，改根文件时对照同步本文件。
+# 与根文件的全部刻意差异（都带 [EVAL-DIFF] 标记）：
+#
+# ① 不挂 @deepseek-ai/dsh-settings-file。根树里 agent-default-model 的组合层
+#    取值只是 Settings 区的 base，挂了 settings provider 后用户级
+#    $DSH_HOME/settings.yaml 的 agent-default-model: 节会叠加覆盖（见
+#    node_modules/@deepseek-ai/dsh-agent-default-model/README.md；本机
+#    settings.yaml 现值就是 deepseek-v4-pro + reasoningEffort: max）。
+#    eval 必须钉死模型，唯一可靠做法是整棵树不挂 settings provider：
+#    installSettingsSection 走 ctx.inject(['settings'], …) 惰性注册，服务
+#    缺席时回调永不执行，currentSelection() 恒返回组合层取值。
+#    副作用（有意为之）：settings.yaml 里 llm-deepseek:/llm-pi-ai: 的用户
+#    覆盖在 eval 里同样失效——评测口径不该被本机个人设置污染。
+# ② agent-default-model 换 deepseek-v4-flash（便宜模型跑评测）。
+# ③ persistence root 由 KINGCODE_EVAL_SESSIONS_ROOT 环境变量注入（run.js
+#    每次评测给一个全新目录）。同一 root 下明文与 zstd 会话不能混放（混了
+#    fail-loud 拒启），而 eval 固定 DSH_SNAPSHOT=1（明文）、仓库
+#    ./.kingcode/sessions 里已有 zstd 会话——所以绝不能共用根树的 root。
+#    未设环境变量时兜底到 ./.kingcode-eval/sessions，同样与根树隔离。
+# ④ 本文件在 eval/ 下，相对路径插件一律 ./ → ../（相对本文件解析）。
+
+# [EVAL-DIFF ①] 根树的 settings 条目（@deepseek-ai/dsh-settings-file）此处刻意不挂。
+
+# 凭证库：进程环境变量 > $DSH_HOME/.credentials.yaml（0600，热加载）。
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: high
+    maxTokens: 32000
+    retryPolicy:
+      mode: normal
+      backoff:
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+        jitterRatio: 0.2
+
+# 多厂商适配器：不挂 settings 时无用户路由，纯粹保持与根树同构（eval 已
+# 在组合层钉死 deepseek-official，不会路由到它）。
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+
+# [EVAL-DIFF ②] 评测钉死便宜模型；因 ① 不挂 settings，此值不可被用户设置覆盖
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 120000
+    maxTimeoutMs: 600000
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents: []
+    workspaceContext:
+      maxBytes: 65536
+    toolBash:
+      enableRunInBackground: false
+    toolJobs: false
+    # [EVAL-DIFF ⑤] 关掉技能发现：默认根含 ~/.agents/skills 与 $DSH_HOME/skills，
+    # 本机个人技能（几十个）会被塞进每一次评测会话的上下文，评测口径不该被它污染。
+    # 根树不关——真实使用时 skill 是想要的能力。
+    skills:
+      enabled: false
+    persona: |
+      You are KingCode, an expert coding agent powered by the {{model}} model.
+      Your working directory is {{cwd}}.
+
+      Respond in the language the user uses.
+
+# [EVAL-DIFF ③] root 走环境变量注入（run.js 每次评测一个全新目录），兜底目录也与根树隔离
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js "process.env.KINGCODE_EVAL_SESSIONS_ROOT ?? './.kingcode-eval/sessions'"
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: tool-result-pruner
+  name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+  config:
+    thresholdChars: 8192
+    headChars: 4096
+    tailChars: 1024
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.5
+    retainRatio: 0.16
+    maxTokens: 32000
+    compactionRetries: 1
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn-in-process
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
+
+- id: subagent-fork-in-process
+  name: '@deepseek-ai/dsh-subagent-fork-in-process'
+  config:
+    providerName: fork
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: one-shot
+    enableRunInBackground: false
+    maxDepth: 1
+
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+    backgroundMode: one-shot
+    enableRunInBackground: false
+    maxDepth: 1
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-observation-policy
+  name: '@deepseek-ai/dsh-fs-observation-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: spill
+  name: '@deepseek-ai/dsh-spill-local'
+  config:
+    root: './.kingcode/spill'
+
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
+
+- id: repeat-tool-reminder
+  name: '@deepseek-ai/dsh-repeat-tool-reminder'
+  config:
+    thresholds: [3, 5, 8]
+    exclude: [todo_write]
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+- id: web
+  name: '@deepseek-ai/dsh-web'
+
+- id: web-fetch
+  name: '@deepseek-ai/dsh-web-fetch-http'
+
+- id: web-search
+  name: '@deepseek-ai/dsh-web-search-deepseek'
+
+# [EVAL-DIFF ⑥] 评测里关掉 web_search（每次搜索走真实模型请求烧 token，且引入
+# 不可控的外部结果扰动）；web_fetch 保留——将来加需要读真实文档的任务用得上。
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    search: false
+
+# [EVAL-DIFF ④] 以下相对路径插件均 ./ → ../
+- id: kingcode-multi-edit
+  name: '../plugins/multi-edit.js'
+
+- id: kingcode-prompt-sections
+  name: '../plugins/prompt-sections.js'
+
+- id: kingcode-startup
+  name: '../plugins/startup.js'
+
+- id: kingcode-runner
+  name: '../plugins/runner.js'
+  inject: [headlessStartup]
+  config:
+    task: !!js ctx.headlessStartup.task

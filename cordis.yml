@@ -11,16 +11,23 @@
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 
+# models 不写：回落适配器默认目录（V4 Pro/Flash 各 1,000,000 token 窗口）。
+# 若需成本护栏，在 $DSH_HOME/settings.yaml 的 llm-deepseek: 节覆盖，别改这里。
+# retryPolicy 用调宽退避的 normal 模式（always 会对认证/配额类永久错误无限重试）。
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     thinking: enabled
     reasoningEffort: high
-    models:
-      - id: deepseek-v4-pro
-        contextWindow: 128000
-      - id: deepseek-v4-flash
-        contextWindow: 128000
+    # 适配器默认输出上限是 256k，而 contextWindow 是「请求+响应」合计 1M：
+    # 不压到一个合理值，压缩阈值 × 窗口 + 输出预算就会越过窗口本身。
+    maxTokens: 32000
+    retryPolicy:
+      mode: normal
+      backoff:
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+        jitterRatio: 0.2
 
 # 多厂商适配器（Anthropic / OpenAI / OpenAI 兼容网关）。
 # **必须挂**：agent-default-model 的选择来自用户级 settings.yaml，而它由
@@ -42,10 +49,12 @@
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
+# 120000 即 dsh-bash-local 的包默认；更长命令由模型按调用传 timeoutMs（persona 已教）
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
-    timeoutMs: 60000
+    timeoutMs: 120000
+    maxTimeoutMs: 600000
 
 # agent 骨架一揽子：llm/session/system-prompt/tools/skill/agent 注册表/goal/
 # jobs/tool-bash/AGENTS.md 装载/agent-loop（demo 包，正式发行时可按其
@@ -56,17 +65,27 @@
     agents: []
     workspaceContext:
       maxBytes: 65536
+    # 后台执行面在工具层整体关闭：一次性 CLI 退出时会 dispose 整棵树，树外
+    # 存活的工作必然被带走。与其让 persona 去劝模型别用，不如让参数与工具
+    # 根本不出现在 schema 里——这个状态就在结构上无法产生。详见 AGENTS.md。
+    toolBash:
+      enableRunInBackground: false
+    toolJobs: false
+    # 身份留在这里（deployment:persona 这个 section 名被 config 占死）；
+    # 工作纪律在 plugins/prompt-sections.js，避免三份 persona 副本各自漂移。
     persona: |
       You are KingCode, an expert coding agent powered by the {{model}} model.
       Your working directory is {{cwd}}.
 
-      Verify your work by running the code or tests before declaring success.
-      Keep answers brief and factual. Respond in the language the user uses.
+      Respond in the language the user uses.
 
+# root 必须随 compression 一起切：同一 root 下明文与 zstd 会话不能混放，混了
+# 后端 fail-loud 拒启（错误信息也不指向解法）。只要跑过一次 DSH_SNAPSHOT=1，
+# 之后的普通调用就永久坏掉——所以快照模式用自己的 root。
 - id: persistence
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: './.kingcode/sessions'
+    root: !!js "process.env.DSH_SNAPSHOT === undefined ? './.kingcode/sessions' : './.kingcode/sessions-plain'"
     compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
 
 - id: checkpoint-policy
@@ -76,12 +95,25 @@
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
+# 压缩前先修剪历史里的大段工具输出（head/tail 保留），别让它们整段吃掉摘要预算
+- id: tool-result-pruner
+  name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+  config:
+    thresholdChars: 8192
+    headChars: 4096
+    tailChars: 1024
+
 - id: compaction-basic
   name: '@deepseek-ai/dsh-compaction-basic'
   config:
-    thresholdRatio: 0.8
+    # 0.8 是上游默认。降到 0.5 是为了让上面那个 pruner 真的有机会跑：引擎是
+    # 「超阈值 → 修剪 → 重新计量 → 仍超才摘要」，修剪是零模型调用的，早一点
+    # 介入几乎无成本；而摘要是有损的，所以也不宜再低（0.5 + 输出预算远未超窗）。
+    thresholdRatio: 0.5
     retainRatio: 0.16
-    maxTokens: 8192
+    # 摘要预算：8192 在 reasoningEffort high 下可能被推理 token 吃掉大半，
+    # 而截半的检查点就是之后整段会话的唯一记忆。
+    maxTokens: 32000
     compactionRetries: 1
 
 # 子代理身份投影；subagent 目录读取缺此能力会 fail loud
@@ -102,18 +134,18 @@
   config:
     providerName: fork
 
-- id: tool-subagent-control
-  name: '@deepseek-ai/dsh-tool-subagent-control'
-
-- id: tool-subagent-report
-  name: '@deepseek-ai/dsh-tool-subagent-report'
-
+# 一次性会话里子代理必须是前台的：continuable 下模型不传 run_in_background 就
+# 默认走后台（上游还自带一段「默认用后台」的系统提示），而 runner 第一次静默就
+# 退出——子代理连同结果一起被 dispose 带走。改 one-shot 后默认前台返回最终文本。
+# 同理不挂 tool-subagent-control / tool-subagent-report：没有 continuable 子代理
+# 时它们注册的 send_message / interrupt_agent / report 是永远等不到第二轮的死工具。
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: spawn
     toolName: subagent
-    backgroundMode: continuable
+    backgroundMode: one-shot
+    enableRunInBackground: false
     maxDepth: 1
 
 # fork 保持 one-shot：continuable 子代理的 report 工具与提示段先于 fork
@@ -144,28 +176,56 @@
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
-# Code Mode 执行容器（DSH_TOOLS_MODE=code/both 时模型可写 JS 编排工具）
-- id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+# 溢写后端：grep 超过 250 条匹配的部分要落盘，否则静默丢弃（tool-fs-search 是
+# 执行期 ctx.get('spillStore')，缺后端只 warn 一句）。落仓库内便于模型 read 回来。
+- id: spill
+  name: '@deepseek-ai/dsh-spill-local'
+  config:
+    root: './.kingcode/spill'
 
-# KingCode 自定义工具示例：项目文件统计（本仓库 plugins/ 下，相对本文件解析）
-- id: kingcode-project-stats
-  name: './plugins/project-stats.js'
+# 工具调用超时的执行者：glob/grep/web 等在 ToolDefinition 上声明的 timeoutMs
+# 全靠它兑现——没有它整棵树没有任何 tools/execute 包装器，声明形同虚设。
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
 
-# 密评评估工具（与 mpe-assess preset 共用同一份实现；CLI 里全局可用）
-- id: mpe-tools
-  name: './presets/mpe-assess/mpe-tools.js'
+# 死循环刹车：无人值守时模型卡在同一个失败调用上会一路烧到压缩。纯提醒，不否决。
+- id: repeat-tool-reminder
+  name: '@deepseek-ai/dsh-repeat-tool-reminder'
+  config:
+    thresholds: [3, 5, 8]
+    exclude: [todo_write]
 
-- id: mpe-remediate-tools
-  name: './presets/mpe-assess/mpe-remediate-tools.js'
+# 结构化代码搜索（glob/grep，包内自带 ripgrep）——不用再在 bash 里手写 grep
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
 
-# 报告产物：直出 Excel/Word（零依赖 OOXML）
-- id: mpe-report-tools
-  name: './presets/mpe-assess/mpe-report-tools.js'
+# ── web 能力（seam → 两个 provider → 工具）────────────────────────────────
+# 网络出口：web_fetch 只收 http/https、拒 URL 内嵌凭证、只跟同源重定向、字节/
+# 字符/跳数有上限；web_search 走 DeepSeek 的 Anthropic 兼容 Messages API，
+# 复用 DEEPSEEK_API_KEY（不引入新密钥；端点是 anthropic/v1，与聊天端点无关）。
+# 两工具声明的 30s 超时由上面的 timeout-policy 兑现。
+- id: web
+  name: '@deepseek-ai/dsh-web'
 
-# 密码机开发工具（SDF SDK 接口/错误码/结构体/实测缺陷）
-- id: hsm-tools
-  name: './presets/hsm-dev/hsm-tools.js'
+- id: web-fetch
+  name: '@deepseek-ai/dsh-web-fetch-http'
+
+- id: web-search
+  name: '@deepseek-ai/dsh-web-search-deepseek'
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+
+# KingCode 自定义工具（本仓库 plugins/ 下，相对本文件解析）——
+# 批量原子编辑：一次调用多处替换、可跨文件、按文件原子（上游没有同类工具）
+- id: kingcode-multi-edit
+  name: './plugins/multi-edit.js'
+
+# 工作纪律与工具取舍的系统提示词段（persona 只留身份句，理由见插件头注释）
+- id: kingcode-prompt-sections
+  name: './plugins/prompt-sections.js'
 
 # 一次性任务驱动：startup 解析任务位置参数（需 bin 先 provideCmdline），
 # runner 建 agent → followup → 等静默 → 打印最终回答 → 按结果退出
