@@ -142,7 +142,7 @@
     maxDepth: 1
 
 # 只读探索子代理：与 subagent 同一个 spawn provider、同款 one-shot 前台，区别只在
-# 两项按实例固定的子策略：toolFilter.allow 只留 read/glob/grep（**不放 bash**——
+# 两项按实例固定的子策略：toolFilter.allow 只留 read/glob/grep/lsp（**不放 bash**——
 # 过滤的是子代理能看见的工具，是可见性不是权限边界，留着 bash 就等于留着
 # `bash -c 'sed -i …'`）；persona 在子作用域遮蔽根 persona，同样经 {{model}}/{{cwd}}
 # 插值。子代理仍会看到 write/edit 等工具的指导文本（上游不按工具过滤指导段），
@@ -156,12 +156,12 @@
     enableRunInBackground: false
     maxDepth: 1
     toolFilter:
-      allow: [read, glob, grep]
+      allow: [read, glob, grep, lsp]
     persona: |
       You are KingCode's read-only explorer, a delegated subagent powered by the {{model}} model.
       Your working directory is {{cwd}}.
 
-      Investigate using only read, glob and grep. You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
+      Investigate using only read, glob, grep and lsp (semantic navigation: definitions, references, implementations, hover). You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
 
       Respond in the language the task uses.
 
@@ -194,6 +194,34 @@
   config:
     thresholds: [3, 5, 8]
     exclude: [todo_write]
+
+# 语义导航（seam → stdio provider → 工具）。与根树同构；[EVAL-DIFF ④] command 的
+# 相对基点是本文件所在的 eval/，所以 node_modules 前缀是 ../。
+- id: lsp
+  name: '@deepseek-ai/dsh-lsp'
+  disabled: !!js "process.env.KINGCODE_LSP === '0'"
+
+- id: lsp-stdio
+  name: '@deepseek-ai/dsh-lsp-stdio'
+  disabled: !!js "process.env.KINGCODE_LSP === '0'"
+  config:
+    servers:
+      typescript:
+        command: !!js "(p => process.platform === 'win32' ? p.slice(1) : p)(decodeURIComponent(new URL('../node_modules/@typescript/typescript-' + process.platform + '-' + process.arch + '/lib/tsc' + (process.platform === 'win32' ? '.exe' : ''), baseUrl).pathname))"
+        args: ['--lsp', '-stdio']
+        extensionToLanguage:
+          '.ts': typescript
+          '.tsx': typescriptreact
+          '.mts': typescript
+          '.cts': typescript
+          '.js': javascript
+          '.jsx': javascriptreact
+          '.mjs': javascript
+          '.cjs': javascript
+
+- id: tool-lsp
+  name: '@deepseek-ai/dsh-tool-lsp'
+  disabled: !!js "process.env.KINGCODE_LSP === '0'"
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'

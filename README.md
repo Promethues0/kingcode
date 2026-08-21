@@ -27,6 +27,7 @@ kingcode "跑一下测试并修复失败"
 | `plugins/multi-edit.js` | 自定义工具：`multi_edit` 批量字面替换（可跨文件、按文件原子） |
 | `plugins/prompt-sections.js` | 系统提示词补充段：一次性会话契约 / 工作纪律 / 工具取舍 |
 | `plugins/env-context.js` | 运行时上下文：日期 / 平台 / git 分支与工作树脏净（只注入一次） |
+| `jsconfig.json` | 只给语言服务器划项目边界（见「语义导航」），不参与任何构建 |
 
 **首次使用**：
 
@@ -56,6 +57,18 @@ dsh --profile kingcode --port 3081
 - 或在 `$DSH_HOME/settings.yaml` 写 `agent-presets: { default: kingcode }`，之后新会话默认就是它。setup 脚本**不替你写**——`~/.dsh` 可能与别的项目共用，默认预设是用户自己的选择。
 
 preset 里用 `kingcode/plugins/…` 引用仓库插件，靠的是脚本把仓库本身 `dsh plugin add -w` 成 profile 里的包 `kingcode`：插件在仓库原位加载，与 CLI 同一份。升级 dsh 后对照 `<dsh>/config/agent-presets/standard/agent.cordis.yml` 同步工具面行。
+
+## 语义导航（`lsp` 工具）
+
+grep 回答「这段文字出现在哪」，`lsp` 回答「这个符号到底绑到了什么」。CLI 树挂了三行——`dsh-lsp`（能力接缝 `ctx.lsp`）→ `dsh-lsp-stdio`（通用 stdio 宿主）→ `dsh-tool-lsp`（模型侧只读工具 `lsp`），四个操作：`goToDefinition` / `findReferences` / `goToImplementation` / `hover`，坐标是 **1-based UTF-16**（光标要落在符号上，落偏了就是空结果）。`findReferences` 永远包含声明本身。只读探索子代理 `explore` 也放行了它。
+
+**覆盖范围**：`.ts` `.tsx` `.mts` `.cts` `.js` `.jsx` `.mjs` `.cjs`，server 是 devDependency `typescript@7` 自带的**原生二进制**（`tsc --lsp -stdio`）。命令直指 `node_modules/@typescript/typescript-<platform>-<arch>/lib/tsc`，不走 `node_modules/.bin/tsc`——后者是个 node 脚本再 `execve` 到同一个二进制，白搭一次 Node 启动（实测 `initialize` 57–314ms vs 直连 9–16ms）。路径由 `!!js` 从 `baseUrl` 按平台拼出，所以换平台后 `npm i` 装上对应的原生包即可；**装不上就是 boot 期响亮失败**（`subprocess-local: command "…" is not an executable file`），不会静默降级成「查不到引用」。语言服务器进程本身是惰性的，首次匹配查询才 spawn。
+
+**`jsconfig.json` 是前提，不是可选项**。没有它，TypeScript 把每个「打开即查」的文件当独立推断项目，`findReferences` 只报本文件内的引用——实测查 `plugins/runner.js` 的 `summarize` 只得 **2 处**（真实 6 处，漏掉 `test/test-runner.js` 里的 import 与三处调用）。**查引用不全比没有这个工具更危险**：模型会拿「仓库内没有其他引用」当结论去改签名。加上之后是 6 处。这个文件只服务语言服务器（`checkJs: false` + `noEmit: true`），仓库没有 tsc 构建步骤，它不进任何构建或测试命令。
+
+**加别的语言**：在 `cordis.yml` 的 `lsp-stdio` 行 `servers:` 下再开一个条目，给它自己的 `command` / `args` / `extensionToLanguage`。路由只按小写扩展名，且一个扩展名只能属于一个 provider——两个 provider 抢同一个扩展名会 `LSP_CONFLICT`（boot 期失败），没人认领的扩展名查询抛 `LSP_UNAVAILABLE`。`command` 必须是绝对路径或裸 PATH 名，含 `/` 的相对路径会被 `subprocess-local` 拒绝。
+
+**整体关闭**：`KINGCODE_LSP=0`。三行都带 `disabled: !!js "process.env.KINGCODE_LSP === '0'"`（loader 支持条目级 `disabled`），关掉后 `lsp` 工具连同上游那段工具指导一起从请求里消失，其余能力不受影响。唯一残留：`plugins/prompt-sections.js` 的工具取舍段仍会提一句 lsp——那是静态文本，不随组合树开关走；真调用会得到 `UNKNOWN_TOOL`，是响亮的，不是静默的。
 
 ## 品牌层 `web-brand/`
 

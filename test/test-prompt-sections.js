@@ -71,6 +71,8 @@ check(DISCIPLINE.includes('Re-reading your own diff is not verification'),
 check(TOOL_ROUTING.includes('grep') && TOOL_ROUTING.includes('todo_write') && TOOL_ROUTING.includes('subagent'),
   '工具取舍覆盖了 grep/todo_write/subagent 三处易误用点')
 check(TOOL_ROUTING.includes('timeoutMs'), '工具取舍告诉了模型 bash 超时的覆盖方式')
+check(TOOL_ROUTING.includes('lsp findReferences'),
+  '工具取舍把「谁真的引用了它」这类问题指向 lsp findReferences（根树挂了 dsh-tool-lsp）')
 
 // 每段都是纯静态文本（没有 fn），否则测试断言的东西与运行时不是同一份
 check(sections.every(s => typeof s.text === 'string' && s.fn === undefined),
@@ -104,6 +106,7 @@ check(WEB_ROUTING.includes('web_fetch is not available'), 'Web 取舍如实说 w
 check(WEB_ROUTING.includes('60s') && WEB_ROUTING.includes('timeoutMs'), 'Web 取舍给的 bash 默认超时是 web 树 bash-sandbox 的 60s')
 check(WEB_ROUTING.includes('run_in_background') && WEB_ROUTING.includes('job_output'), 'Web 取舍覆盖了后台任务（standard preset 挂 tool-jobs）')
 check(!WEB_ROUTING.includes('one-shot') && !WEB_ROUTING.includes('no second turn'), 'Web 取舍里没有一次性 CLI 的话')
+check(!WEB_ROUTING.includes('lsp'), 'Web 取舍不提 lsp（presets/kingcode 的 Web 树没挂 LSP 三件套）')
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)

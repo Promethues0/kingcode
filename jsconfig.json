@@ -1,0 +1,19 @@
+{
+  // 这个文件只为语言服务器（lsp 工具背后的 tsc --lsp）划项目边界：没有它，
+  // TypeScript 把每个「打开即查」的文件当独立推断项目，findReferences 只能报出
+  // 本文件内的引用——查引用不全比没有这个工具更危险。
+  //
+  // 仓库没有 tsc 构建步骤，也不做 JS 类型检查：checkJs 关、noEmit 开，
+  // 它不参与任何构建或测试命令。
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2022",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "resolveJsonModule": true
+  },
+  "include": ["bin", "plugins", "test", "eval", "web-brand"],
+  "exclude": ["node_modules", "eval/results", "eval/runs", "mac/build", "win"]
+}

@@ -38,7 +38,7 @@ errorCode/emptyOutput/exitCode），给 eval harness 判分用。
   同步），刻意不挂 `dsh-settings-file` 以免本机 settings.yaml 盖掉评测模型；
   评测树关掉 `web_search`（真实费用+外部结果扰动），`web_fetch` 保留。
 - 子代理三实例：`subagent`（spawn，可用 bash/web）、`subagent_fork`（fork，复用前缀）、
-  `explore`（spawn，toolFilter 只留 read/glob/grep 的只读探索者）。全部 one-shot 前台、
+  `explore`（spawn，toolFilter 只留 read/glob/grep/lsp 的只读探索者）。全部 one-shot 前台、
   maxDepth 1——一次性 CLI 退出即 dispose 整棵树，后台子代理会连结果一起被带走。
 - `plugins/env-context.js` 用 `systemPrompt.context()`（不是 section）注入日期/平台/
   git 状态：context 只在文本变化时重新注入，所以日期不带时分、git 只在 apply 时拍
@@ -46,6 +46,12 @@ errorCode/emptyOutput/exitCode），给 eval harness 判分用。
 - web 能力：`web_search` 走 DeepSeek 的 Anthropic 兼容端点，**复用
   DEEPSEEK_API_KEY**，不引入新密钥；`web_fetch` 只收 http/https、拒 URL 内嵌
   凭证、只跟同源重定向。两工具的 30s 超时靠 timeout-policy 兑现。
+- 语义导航：`dsh-lsp` / `dsh-lsp-stdio` / `dsh-tool-lsp` 三行给模型一个只读 `lsp` 工具
+  （定义/引用/实现/hover，1-based UTF-16），server 是 `typescript@7` 的原生二进制
+  `tsc --lsp -stdio`（直指平台包，不走 `.bin/tsc` 的 node 壳）。**仓库根 `jsconfig.json`
+  是前提**：没有它 TS 把每个打开的文件当独立项目，`findReferences` 只报本文件内的引用
+  （实测 2 处 vs 真实 6 处）——查引用不全比没有这个工具更危险。三行带条目级
+  `disabled`，`KINGCODE_LSP=0` 整体关；server 二进制缺失是 boot 期 fail-loud。
 - 会话持久化：普通跑落 `.kingcode/sessions`（zstd），`DSH_SNAPSHOT=1` 落
   `.kingcode/sessions-plain`（明文）。**两者不能共用一个 root**，混放会 fail-loud。
 - `mac/`、`win/`、`web-brand/`、`profile/`：客户端外壳与品牌层，与 CLI 共用同一棵
@@ -61,6 +67,10 @@ errorCode/emptyOutput/exitCode），给 eval harness 判分用。
 
 ## 几条刻意的决定（不是漏做）
 
+- **`typescript` 挂在 devDependencies，但 LSP 在 boot 期就要解析它**：`npm ci --omit=dev`
+  之后每一次调用都会死在 boot（除非同时 `KINGCODE_LSP=0`——disabled 的条目不 apply，
+  也就不查 server 可执行文件）。当前无 CI、无 Docker、README 记的就是裸 `npm install`，
+  所以不构成问题；将来加 CI 要记得这条。
 - **dsh 包一律 `npm i -E @deepseek-ai/<pkg>@0.1.0-rc.6`**。`latest` dist-tag 指向
   0.0.1 老线，省略版本会装到与本树不兼容的包。
 - **后台执行面在工具层整体关闭**：`toolJobs: false` + `toolBash.enableRunInBackground:

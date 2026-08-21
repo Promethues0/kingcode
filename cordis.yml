@@ -160,7 +160,7 @@
     maxDepth: 1
 
 # 只读探索子代理：与 subagent 同一个 spawn provider、同款 one-shot 前台，区别只在
-# 两项按实例固定的子策略：toolFilter.allow 只留 read/glob/grep（**不放 bash**——
+# 两项按实例固定的子策略：toolFilter.allow 只留 read/glob/grep/lsp（**不放 bash**——
 # 过滤的是子代理能看见的工具，是可见性不是权限边界，留着 bash 就等于留着
 # `bash -c 'sed -i …'`）；persona 在子作用域遮蔽根 persona，同样经 {{model}}/{{cwd}}
 # 插值。子代理仍会看到 write/edit 等工具的指导文本（上游不按工具过滤指导段），
@@ -174,12 +174,12 @@
     enableRunInBackground: false
     maxDepth: 1
     toolFilter:
-      allow: [read, glob, grep]
+      allow: [read, glob, grep, lsp]
     persona: |
       You are KingCode's read-only explorer, a delegated subagent powered by the {{model}} model.
       Your working directory is {{cwd}}.
 
-      Investigate using only read, glob and grep. You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
+      Investigate using only read, glob, grep and lsp (semantic navigation: definitions, references, implementations, hover). You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
 
       Respond in the language the task uses.
 
@@ -218,6 +218,56 @@
   config:
     thresholds: [3, 5, 8]
     exclude: [todo_write]
+
+# ── 语义导航（seam → stdio provider → 工具）─────────────────────────────────
+# 三行是一组，靠 KINGCODE_LSP=0 整体关掉（loader 支持条目级 disabled，`!!js`
+# 表达式在同一个 with(ctx) 作用域里求值）。关掉后 lsp 工具连同它的提示词段
+# 一起消失，其余能力不受影响。
+#
+# **前提是仓库根的 jsconfig.json**：没有它，TypeScript 把每个「打开即查」的
+# 文件当独立推断项目，findReferences 只报本文件内的引用（实测 summarize：
+# 2 处 vs 真实 6 处）。查引用不全比没有这个工具更危险，所以那个文件不是可选项。
+- id: lsp
+  name: '@deepseek-ai/dsh-lsp'
+  disabled: !!js "process.env.KINGCODE_LSP === '0'"
+
+# server 用 typescript@7（devDependency）自带的**原生二进制**，不走
+# node_modules/.bin/tsc：后者是个 node 脚本，再 execve 到同一个二进制，白搭一次
+# Node 启动（本机实测 initialize 57-314ms vs 直连 9-16ms，各 5 次）。B9 调研报的那次
+# 90ms→90s 卡顿只在走 .bin 时出现过，本次两种走法各 5 次都没复现——选原生二进制
+# 的决定性理由是那笔可测的启动成本，不是那次未复现的卡顿。
+# command 必须是绝对路径或裸 PATH 名（含 / 的相对路径被 subprocess-local 拒绝），
+# 所以从 baseUrl（本文件所在目录的 file URL）拼；平台后缀照 typescript 自己的
+# getExePath 规则算。二进制不存在 = boot 期 fail-loud（apply 里 resolveExecutable
+# 先解析完所有 server 才注册任何 provider），这是有意的：静默降级会让模型
+# 以为「没有引用」。进程本身惰性，首次匹配的查询才 spawn。
+- id: lsp-stdio
+  name: '@deepseek-ai/dsh-lsp-stdio'
+  disabled: !!js "process.env.KINGCODE_LSP === '0'"
+  config:
+    servers:
+      typescript:
+        command: !!js "(p => process.platform === 'win32' ? p.slice(1) : p)(decodeURIComponent(new URL('node_modules/@typescript/typescript-' + process.platform + '-' + process.arch + '/lib/tsc' + (process.platform === 'win32' ? '.exe' : ''), baseUrl).pathname))"
+        args: ['--lsp', '-stdio']
+        # 路由只按小写扩展名，且一个扩展名只能有一个 provider（撞了 LSP_CONFLICT）。
+        # 没人认领的扩展名查询抛 LSP_UNAVAILABLE——加别的语言就在 servers 下再开
+        # 一个条目，认领它自己那组扩展名。
+        extensionToLanguage:
+          '.ts': typescript
+          '.tsx': typescriptreact
+          '.mts': typescript
+          '.cts': typescript
+          '.js': javascript
+          '.jsx': javascriptreact
+          '.mjs': javascript
+          '.cjs': javascript
+
+# 模型侧只读工具 `lsp`：operation ∈ {goToDefinition, findReferences,
+# goToImplementation, hover}，坐标是 1-based UTF-16。声明的 60s 超时同样靠上面
+# 的 timeout-policy 兑现。
+- id: tool-lsp
+  name: '@deepseek-ai/dsh-tool-lsp'
+  disabled: !!js "process.env.KINGCODE_LSP === '0'"
 
 # 结构化代码搜索（glob/grep，包内自带 ripgrep）——不用再在 bash 里手写 grep
 - id: tool-fs-search
