@@ -105,6 +105,8 @@ async function checkMissingServices() {
   internals.stdout = savedOut
   internals.stderr = savedErr
   eq(exitCode, 1, '缺核心服务 → exit 1')
+  check(stderr.text().includes('若上方有插件挂载失败'),
+    '缺服务的报错指向真因（插件挂载失败才是病因，服务缺席只是后果）')
   check(stderr.text().includes('组合树缺少核心服务'), '缺核心服务时 stderr 响亮报错', stderr.text().trim())
   check(stderr.text().includes('agents') && stderr.text().includes('sessions'), '报错点名缺了哪些服务')
   eq(stdout.text(), '', '缺核心服务时 stdout 保持纯净')

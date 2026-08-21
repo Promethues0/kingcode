@@ -121,7 +121,14 @@ async function run(ctx, task, io) {
     sessions === undefined && 'sessions',
   ].filter(Boolean)
   if (missing.length > 0) {
-    io.stderr.write(`kingcode: 组合树缺少核心服务：${missing.join('、')}\n`)
+    // 服务缺席通常只是后果：某个插件 apply 抛错，它本该 provide 的服务就没了。
+    // boot() 会带着真因 reject（"failed to apply loader entry <名字>: <原因>"），
+    // 但那条 rejection 要等 installFailLoud 的 unhandledRejection 钩子才落地，
+    // 而这里若立刻 exit 就把它掐掉了——只剩一句「缺少核心服务」，排查方向被带偏。
+    // 让出一轮宏任务：真因先打印并退出，进程还活着才轮到下面这句兜底。
+    await new Promise(resolve => setTimeout(resolve, 0))
+    io.stderr.write(`kingcode: 组合树缺少核心服务：${missing.join('、')}`
+      + '（若上方有插件挂载失败，那才是原因）\n')
     io.exit(1)
     return
   }
