@@ -56,16 +56,6 @@ Copy-Item (Join-Path $repo 'profile\cordis.patch.yml') (Join-Path $profileDir 'c
 & dsh plugin --profile kingcode add -w (Join-Path $repo 'web-brand')
 if ($LASTEXITCODE -ne 0) { Write-Error "dsh plugin add 失败（退出码 $LASTEXITCODE）" }
 
-# ── agent presets：把仓库里的预设装到用户预设根（幂等覆盖）─────────────────
-$presetRoot = Join-Path $dshHome '.agent-presets'
-New-Item -ItemType Directory -Force -Path $presetRoot | Out-Null
-Get-ChildItem -Directory (Join-Path $repo 'presets') | ForEach-Object {
-  $dest = Join-Path $presetRoot $_.Name
-  if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-  Copy-Item -Recurse $_.FullName $dest
-  Write-Host "preset 已安装：$($_.Name) → $dest"
-}
-
 Write-Host ''
 Write-Host "profile 就绪：$profileDir"
 Write-Host '启动：dsh --profile kingcode --port 3081，或直接运行 KingCode.exe'
