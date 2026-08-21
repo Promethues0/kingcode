@@ -1,0 +1,5 @@
+[
+  { "id": "C0001", "name": "Alice Chen", "tier": "gold" },
+  { "id": "C0002", "name": "Bob Lee", "tier": "silver" },
+  { "id": "C7", "name": "Carol Wu", "tier": "gold" }
+]

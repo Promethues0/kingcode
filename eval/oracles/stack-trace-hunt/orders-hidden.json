@@ -1,0 +1,6 @@
+[
+  { "id": 2001, "customer": "c0007", "amountCents": 3300 },
+  { "id": 2002, "customer": "C7", "amountCents": 1250 },
+  { "id": 2003, "customer": "c1", "amountCents": 700 },
+  { "id": 2004, "customer": "C0007", "amountCents": 1 }
+]

@@ -1,0 +1,10 @@
+{
+  "name": "stock-report",
+  "version": "0.3.1",
+  "description": "eval 夹具：构建挂掉的小项目（勿手动修复——构建失败是评测题面）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node --check src/format.js && node --check src/inventory.js && node --check src/report.js && node --check src/index.js && node src/index.js"
+  }
+}

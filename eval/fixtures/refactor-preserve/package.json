@@ -1,0 +1,10 @@
+{
+  "name": "refactor-preserve-fixture",
+  "version": "1.0.0",
+  "description": "eval 夹具：三个函数开头整段复制的参数校验（重复本身是评测题面，勿手动重构）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node test.js"
+  }
+}

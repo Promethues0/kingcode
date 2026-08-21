@@ -1,0 +1,7 @@
+{
+  "$comment": "Sample overrides for the staging relay. Pass this object to configure(); keys that are left out keep their built-in values.",
+  "throttle": { "span": 10000, "burst": 20 },
+  "retry": { "attempts": 6 },
+  "transport": { "timeoutMs": 12000 },
+  "worker": { "idleMs": 3000 }
+}

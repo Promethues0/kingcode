@@ -1,0 +1,10 @@
+{
+  "name": "duration-fixture",
+  "version": "1.0.0",
+  "description": "eval 夹具：一个没有测试的纯函数模块（题面是给它补测试）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

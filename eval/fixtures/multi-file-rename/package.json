@@ -1,0 +1,11 @@
+{
+  "name": "mini-ledger",
+  "version": "0.3.0",
+  "description": "eval 夹具：小账本库（评测题面是跨文件重命名，勿手动改名）",
+  "type": "module",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node test.js"
+  }
+}

@@ -37,6 +37,12 @@ errorCode/emptyOutput/exitCode），给 eval harness 判分用。
 - `eval/`：行为评测。`cordis.eval.yml` 派生自根 `cordis.yml`（改根文件时对照
   同步），刻意不挂 `dsh-settings-file` 以免本机 settings.yaml 盖掉评测模型；
   评测树关掉 `web_search`（真实费用+外部结果扰动），`web_fetch` 保留。
+- 子代理三实例：`subagent`（spawn，可用 bash/web）、`subagent_fork`（fork，复用前缀）、
+  `explore`（spawn，toolFilter 只留 read/glob/grep 的只读探索者）。全部 one-shot 前台、
+  maxDepth 1——一次性 CLI 退出即 dispose 整棵树，后台子代理会连结果一起被带走。
+- `plugins/env-context.js` 用 `systemPrompt.context()`（不是 section）注入日期/平台/
+  git 状态：context 只在文本变化时重新注入，所以日期不带时分、git 只在 apply 时拍
+  一次快照。
 - web 能力：`web_search` 走 DeepSeek 的 Anthropic 兼容端点，**复用
   DEEPSEEK_API_KEY**，不引入新密钥；`web_fetch` 只收 http/https、拒 URL 内嵌
   凭证、只跟同源重定向。两工具的 30s 超时靠 timeout-policy 兑现。

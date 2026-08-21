@@ -1,0 +1,10 @@
+{
+  "name": "ledger-fixture",
+  "version": "1.0.0",
+  "description": "eval 夹具：对账小工具（勿手动修复——bug 是评测题面）",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "api-contract-extend-fixture",
+  "version": "1.0.0",
+  "description": "eval 夹具：一个被三处调用的 format()，题面是给它加可选参数而不破坏调用方",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node test.js"
+  }
+}

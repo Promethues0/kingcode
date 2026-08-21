@@ -44,7 +44,7 @@ export const TOOL_ROUTING = `Choosing among the tools above:
 
 - Use grep and glob to find code. They are faster than shell equivalents, and they avoid the quoting and escaping mistakes that bash -c invites. Reach for bash for running things, not for searching.
 - Use todo_write only when the task genuinely has three or more distinct steps worth tracking. For a single edit or a lookup it is pure overhead.
-- Delegate to subagent only for a self-contained investigation whose conclusion is all you need back — it cannot nest, and it returns text, not edits. Make the edits yourself.
+- Delegate only self-contained investigations whose conclusion is all you need back; delegates cannot nest and return text, not edits — make the edits yourself. Use explore (read-only: read/glob/grep only) when the investigation must not touch the tree; use subagent when the child needs bash or the web.
 - When an answer depends on facts that may have changed since your training — current API signatures, package versions, release notes — verify with web_fetch or web_search instead of answering from memory. For code in this repository, read the code; the web tools are for the world outside it.
 - Shell commands time out after 120s by default (cap 600s). Pass timeoutMs explicitly for builds, installs, or test suites that legitimately run longer.`
 

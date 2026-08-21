@@ -159,6 +159,30 @@
     enableRunInBackground: false
     maxDepth: 1
 
+# 只读探索子代理：与 subagent 同一个 spawn provider、同款 one-shot 前台，区别只在
+# 两项按实例固定的子策略：toolFilter.allow 只留 read/glob/grep（**不放 bash**——
+# 过滤的是子代理能看见的工具，是可见性不是权限边界，留着 bash 就等于留着
+# `bash -c 'sed -i …'`）；persona 在子作用域遮蔽根 persona，同样经 {{model}}/{{cwd}}
+# 插值。子代理仍会看到 write/edit 等工具的指导文本（上游不按工具过滤指导段），
+# 但调用会得到 UNKNOWN_TOOL——persona 里那句「你没有改文件的工具」就是压这层噪音。
+- id: tool-subagent-explore
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: explore
+    backgroundMode: one-shot
+    enableRunInBackground: false
+    maxDepth: 1
+    toolFilter:
+      allow: [read, glob, grep]
+    persona: |
+      You are KingCode's read-only explorer, a delegated subagent powered by the {{model}} model.
+      Your working directory is {{cwd}}.
+
+      Investigate using only read, glob and grep. You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
+
+      Respond in the language the task uses.
+
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
   config:
@@ -226,6 +250,11 @@
 # 工作纪律与工具取舍的系统提示词段（persona 只留身份句，理由见插件头注释）
 - id: kingcode-prompt-sections
   name: './plugins/prompt-sections.js'
+
+# 运行时上下文：日期 / 平台 / git 分支与工作树脏净（context 而非 section：只在文本
+# 变化时重新注入，稳定快照全程只占一次；git 只在 apply 时拍一次快照，不在每步 spawn）
+- id: kingcode-env-context
+  name: './plugins/env-context.js'
 
 # 一次性任务驱动：startup 解析任务位置参数（需 bin 先 provideCmdline），
 # runner 建 agent → followup → 等静默 → 打印最终回答 → 按结果退出

@@ -1,20 +1,66 @@
-# KingCode —— 基于 DeepSeek Harness 的编程智能体 profile
-# 补丁层：按 id 覆盖 bundle 里的插件配置
+# KingCode —— 基于 DeepSeek Harness 的编程智能体 profile（Web UI / Mac / Win 客户端）。
+#
+# 这是 `dsh --profile kingcode` 的用户补丁层。profile 根是空列表，整棵树由
+# package.json 里 bundles（@deepseek-ai/dsh-base → dsh-web-app）各自的 insert 叠出，
+# 本文件最后叠上（再往上只有 --patch 覆盖层）。语义（dsh-app-boot README）：
+# id 定向的补丁**整段替换**目标行的 config（不深合并，保留的字段要重述）；insert 追加行；
+# 对不存在的 id 只在 stderr 警一句、不报错——改完务必
+# `dsh --profile kingcode --dump-config`，目标行上方应标
+# "patched by .../profiles/kingcode/cordis.patch.yml"。
+#
+# 相对路径的 name 解析到 $DSH_HOME/profiles/kingcode/，不是本仓库（setup.sh 把本文件
+# 原样拷过去），所以这里只能写 bundle 里已有的 id，或 profile node_modules 里 link 了的包名。
+
+# ── 身份 ───────────────────────────────────────────────────────────────────
+# 与根 cordis.yml 的身份句逐字一致；工作纪律不写在 persona 里（理由见 AGENTS.md 与
+# plugins/prompt-sections.js 头注释）。
+#
+# 它在 Web 形态下的实际作用范围要说清：上游 system-prompt 把 persona 注册为全局
+# `deployment:persona` 段，而随 dsh 发行的每个 agent preset（standard/code/cordis/minimal，
+# 见 <dsh 安装目录>/config/agent-presets/*/agent.cordis.yml）都挂了 dsh-persona 行，
+# 在 agent 作用域**遮蔽**这条全局 persona——用户在 Web 里选任何一个内置 preset，
+# 模型看到的仍是上游那句 "You are a coding agent…"。这里改的是全局默认值：没有
+# dsh-persona 行的 preset 和 host 侧的冷读取才用得到。要让客户端真正姓 KingCode，
+# 得有一个 KingCode 自己的 preset（agent.cordis.yml 里挂 dsh-persona + 工具行），再用
+# agent-presets 行的 roots/default 指过去——那是新文件，本文件管不到。
 - id: system-prompt
   config:
-    persona: >-
+    persona: |
       You are KingCode, an expert coding agent powered by the {{model}} model.
-      Your working directory is {{cwd}}. You write clean, well-tested code,
-      explain your reasoning concisely, and always verify changes by running
-      tests or the code itself before declaring success. You communicate in
-      the same language the user uses.
+      Your working directory is {{cwd}}.
+
+      Respond in the language the user uses.
+
+# 默认模型：base 层给的是 flash，这里抬到 pro。用户在 Web 模型选择器里的选择
+# （写进 $DSH_HOME/settings.yaml 的 agent-default-model: 节）仍优先于此。
 - id: agent-default-model
   config:
     provider: deepseek-official
     model: deepseek-v4-pro
 
-# 品牌层：节点半侧改 <title>/favicon/manifest，浏览器半侧叠苔径晨雾配色
-# （client-modules 扫到本包的 dsh.client 声明后自动 serve /plugins/<id>/client.js）
+# ── 品牌层 ─────────────────────────────────────────────────────────────────
+# 节点半侧改 <title>/favicon/manifest，浏览器半侧叠配色（client-modules 扫到本包的
+# dsh.client 声明后自动 serve /plugins/<id>/client.js）。包名能解析，是因为 setup.sh 用
+# `dsh plugin --profile kingcode add -w $REPO/web-brand` 把它 link 进了 profile。
 - insert:
     - id: kingcode-brand
       name: 'kingcode-web-brand'
+
+# ── 工作纪律段（plugins/prompt-sections.js）—— 暂不挂，原因与开关如下 ─────────
+# 光靠本文件挂不上，两件事要先成立：
+# ① 路径。相对 name 解析到 profile 目录，到不了仓库。setup.sh 需多一行
+#      dsh plugin --profile kingcode add -w "$REPO"
+#    把仓库本身 link 成包 `kingcode`（根 package.json 没有 exports 字段，子路径可直接
+#    import）。之后下面这段就能解析（已在一个临时 profile 里 link 后真起 Web 验证过）：
+#      - insert:
+#          - id: kingcode-prompt-sections
+#            name: 'kingcode/plugins/prompt-sections.js'
+# ② 内容。该插件是为一次性 CLI 写的，三段全局、无条件注册，落到每个 preset 与每个
+#    子代理上；其中两段在交互式 Web 里说的不是实话：`kingcode:session-contract`
+#    断言「没有向用户提问的通道、没有第二轮」，而 Web 树挂着 user-questions /
+#    plan-mode，standard preset 挂着 tool-ask-user；`kingcode:tool-routing` 里 subagent
+#    只能 one-shot、bash 120s/600s、web_fetch 可用，都是照 CLI 树的配置写的，Web 的
+#    standard preset 里 subagent 是 continuable、tool-web 关了 fetch。
+#    所以得先给 prompt-sections.js 加按段开关（如 config.sessionContract: false），
+#    或把 Web 的纪律段放进 KingCode 自己的 preset 里随 dsh-persona 一起挂。
+#    两件都成立前，挂上去等于把错话塞进客户端的系统提示词，不如不挂。

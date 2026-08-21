@@ -26,6 +26,7 @@ kingcode "跑一下测试并修复失败"
 | `plugins/runner.js` | 一次性任务驱动：建 agent → followup → 等静默 → 打印 → 定退出码 |
 | `plugins/multi-edit.js` | 自定义工具：`multi_edit` 批量字面替换（可跨文件、按文件原子） |
 | `plugins/prompt-sections.js` | 系统提示词补充段：一次性会话契约 / 工作纪律 / 工具取舍 |
+| `plugins/env-context.js` | 运行时上下文：日期 / 平台 / git 分支与工作树脏净（只注入一次） |
 
 **首次使用**：
 
@@ -194,11 +195,16 @@ npm run eval          # agent 行为评测：真跑任务集并与基线对比�
 
 ```bash
 npm run eval                          # 全量跑，与 eval/baseline.json 对比
-node eval/run.js --task fix-slug      # 单任务
-node eval/run.js --update-baseline    # 把本次结果定为新基线
+node eval/run.js --jobs 3             # 并发跑（11 个任务 agent 合计 ~6 分钟，--jobs 3 墙钟 ~3 分钟）
+node eval/run.js --task fix-slug      # 单任务，写 latest-partial.json 不碰全量结果
+node eval/run.js --update-baseline    # 把本次结果定为新基线（有 harness-error 时拒写）
 ```
 
-**判分零 LLM 参与**：复跑测试看退出码、stdout 正则、对夹具独立复算期望值——判分器不问模型，也不写死期望数字。修复类任务还会把测试文件与原件逐字节比对，堵掉「改测试而不是改代码」这条捷径。
+11 个任务覆盖：修复失败测试、修复构建、按栈追因、跨文件重命名、重构保行为、扩展 API 不破坏调用方、给未测模块补测试（**变异测试判分**：agent 写的测试至少杀死 6 个变异体里的 4 个）、陌生代码检索、长命令超时处理（必须读工具说明传 timeoutMs）。
+
+**判分零 LLM 参与**：复跑测试看退出码、stdout 正则、隐藏用例（`eval/oracles/`，agent 看不见）、变异体杀灭率、会话 jsonl 过程取证（用了什么工具、传了什么参数、花了多久）。防作弊是判分的一部分：测试文件与原件逐字节比对、不许新建文件用文件集合 diff、读盘的「测试」直接拒收、靠 `echo VERIFY_OK` 混过的长命令题要看那次调用真花了 135 秒。
+
+状态五态：pass / fail / xfail（标了 `expectFail` 的 known-fail）/ xpass（该摘标了）/ harness-error（评测器自己的病，绝不伪装成 agent 失败）。本次 fail 而基线 pass 的任务自动重跑一次，两次都记账。
 
 评测用 `eval/cordis.eval.yml`（派生自根 `cordis.yml`，改根文件时对照同步）：换便宜的 flash 模型、会话根隔离，且**刻意不挂 `dsh-settings-file`**——否则本机 `settings.yaml` 的模型选择会盖掉组合层，评测口径被个人设置污染。
 
