@@ -6,8 +6,13 @@
  * 交给树内的 headless-startup 解析。stdout 是产品输出（最终回答），
  * 诊断一律走 stderr。
  *
- * 退出码：0=完成且有回答；3=完成但零输出；1=其余（见 plugins/runner.js
- * 的 exitCodeFor）。
+ * 退出码：0=完成且有回答；3=完成但零输出；4=触到 KINGCODE_DEADLINE_MS；
+ * 130=SIGINT、143=SIGTERM（Unix 惯例 128+信号号）；1=其余。0/3/1 出自
+ * plugins/runner.js 的纯函数 exitCodeFor，4/130/143 出自同文件的 windDown
+ * 收尾路径（那三种结局 stdout 为空——只有 0 才意味着 stdout 上有回答）。
+ *
+ * 运行时旋钮：KINGCODE_QUIET=1 关掉 stderr 进度流（默认开）；
+ * KINGCODE_DEADLINE_MS=<正整数毫秒> 给整次调用一个墙钟上限。
  */
 
 import { fileURLToPath } from 'node:url'

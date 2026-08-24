@@ -122,7 +122,14 @@ export default {
     stdout, stderr, exitCode,       // CLI 产物；exitCode 为 null = 被杀/起不来
     timedOut, durationMs,
     result,                         // KINGCODE_RESULT_FILE 的一行 JSON（可能为 null）：
-                                    //   {sessionId, reasonKind, errorCode, emptyOutput, exitCode}
+                                    //   {sessionId, reasonKind, errorCode, emptyOutput, exitCode,
+                                    //    termination, signal}
+                                    // termination: 'normal' 跑完（exitCode 由 exitCodeFor 定，0/3/1）
+                                    //            | 'deadline' 触到 KINGCODE_DEADLINE_MS（exitCode 4）
+                                    //            | 'signal'   收到信号（exitCode 130/143）
+                                    // signal: termination==='signal' 时是 'SIGINT'/'SIGTERM'，否则 null
+                                    // 后两种是「没跑完就被截断」，stdout 为空、reasonKind 多为 aborted——
+                                    // 判分时别把它当 agent 答错，那是被外力砍的
     sessionId, sessionFile,         // 明文会话 jsonl 绝对路径（找不到为 null）——过程判分的入口
     sessionsRoot,                   // 本次评测的会话根目录
     usage,                          // 该会话聚合用量（sessionFile 为 null 时也为 null）

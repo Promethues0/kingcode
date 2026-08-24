@@ -19,9 +19,24 @@ eval 守「agent 干得对不对」。判分零 LLM 参与（复跑测试 / 正�
 ## CLI 退出码契约
 
 `kingcode "<task>"`：**0** = 完成且有回答（回答走 stdout，诊断一律走 stderr）；
-**3** = 完成但助手零输出；**1** = 其余（错误/未收敛/参数错）。设
-`KINGCODE_RESULT_FILE=<path>` 可额外落一行机读 JSON（sessionId/reasonKind/
-errorCode/emptyOutput/exitCode），给 eval harness 判分用。
+**3** = 完成但助手零输出；**4** = 触到 `KINGCODE_DEADLINE_MS`；**130** = SIGINT、
+**143** = SIGTERM（Unix 惯例 128+信号号）；**1** = 其余（错误/未收敛/参数错）。
+0/3/1 由纯函数 `exitCodeFor` 定（既有测试守着它）；4/130/143 是「没跑完就被截断」，
+走 runner 的 `windDown` 另一条路径，**此时 stdout 为空**——只有 0 才意味着有回答。
+设 `KINGCODE_RESULT_FILE=<path>` 可额外落一行机读 JSON（sessionId/reasonKind/
+errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分用；
+`termination` ∈ {normal, deadline, signal}，`signal` 只在 signal 时非 null。
+
+## runner 生命周期（stderr 进度流 / 信号 / deadline）
+
+- **进度流默认开，只走 stderr**：runner 订 `session/event`，把工具调用（名 + 截断
+  参数）、轮/步边界、`llm/retry` 退避、压缩、收尾摘要逐行打出来，每行带相对起始的
+  秒数、无 ANSI、限宽 100。渲染在 `plugins/progress.js`（纯函数，可单测）。
+  **stdout 只许有最终回答**，进度绝不能借道那里。`KINGCODE_QUIET=1` 关掉进度流，
+  错误诊断不受影响（把真报错也吞掉只会造出新的静默失败）。
+- **SIGINT/SIGTERM**：取消 agent（`agent.cancel({kind:'user'})`）→ 最多等 5s 收敛 →
+  `sessions.flush` → 按 130/143 退。**第二次同一信号立即硬退**。
+- **`KINGCODE_DEADLINE_MS`**：整次调用的墙钟上限，到点走同一条收尾路径、退 4。
 
 ## 结构要点
 

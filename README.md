@@ -14,7 +14,22 @@ kingcode "跑一下测试并修复失败"
 
 接一个任务 → agent 干活（bash/文件/glob/grep/子代理/todo 全套工具）→ stdout 打印最终回答 → 按结果退出。适合终端与 CI。
 
-**退出码契约**：0 = 完成且有回答；3 = 完成但助手零输出（不该被 CI 当成功）；1 = 其余（错误/未收敛/参数错）。设 `KINGCODE_RESULT_FILE=<path>` 可额外落一行机读 JSON（sessionId / reasonKind / errorCode / emptyOutput / exitCode），给评测 harness 判分用。
+**退出码契约**：0 = 完成且有回答；3 = 完成但助手零输出（不该被 CI 当成功）；**4 = 触到 `KINGCODE_DEADLINE_MS`**；**130 = SIGINT**、**143 = SIGTERM**（Unix 惯例 128+信号号）；1 = 其余（错误/未收敛/参数错）。设 `KINGCODE_RESULT_FILE=<path>` 可额外落一行机读 JSON（sessionId / reasonKind / errorCode / emptyOutput / exitCode / termination / signal），给评测 harness 判分用；`termination` 是 `normal` | `deadline` | `signal`，`signal` 只在后者为 `signal` 时是 `SIGINT`/`SIGTERM`。4/130/143 走的是「没跑完就被截断」那条路径，此时 stdout 为空——**只有 0 才意味着 stdout 上有回答**。
+
+**运行时可观测性**：runner 默认把逐步进度打到 **stderr**（stdout 只放最终回答，一个字节都不污染）：每次工具调用一行（工具名 + 截断后的关键参数）、轮次与步边界、模型重试退避（`llm/retry`，「静默十几分钟」的主因）、上下文压缩、收尾摘要，每行带相对起始的秒数如 `[   12.3s]`，无 ANSI（stderr 常被重定向进日志）。
+
+```
+[    0.0s] kingcode 启动：deepseek-official/deepseek-v4-pro
+[    0.6s] ─ 轮 1 开始
+[    0.6s] 步 1.1 请求模型
+[    9.8s]   bash ls plugins/
+[    9.9s]   └ 完成 0.1s
+[   28.4s] 完成：28.4s，completed，回答 412 字，退出码 0
+```
+
+- `KINGCODE_QUIET=1`：进度流一个字节都不写（错误诊断不受影响）。默认是开的。
+- `KINGCODE_DEADLINE_MS=<正整数毫秒>`：整次调用的墙钟上限，到点取消 agent、flush 会话、以 4 收场（病理循环无限烧钱且静默的护栏）。不设则无限制；给非正整数会响亮拒收并以 1 退出，不静默忽略。
+- `SIGINT`/`SIGTERM`：先取消 agent、等它收敛（上限 5s）、flush 会话再退，会话 jsonl 尾部不丢；**再按一次同一个信号立即硬退**（取消路径自己卡住时还得能把它按掉）。
 
 **结构**：
 
@@ -23,7 +38,8 @@ kingcode "跑一下测试并修复失败"
 | `bin/kingcode.js` | 进程入口：fail-loud → 读 `.env` → `provideCmdline`（参数+退出请求）→ `boot()` 挂载组合树 |
 | `cordis.yml` | 组合树：每行一个插件 `{id, name, config}`，这就是 KingCode 的「配方」 |
 | `plugins/startup.js` | 解析任务位置参数与 `--help`，发布 `headlessStartup` 服务 |
-| `plugins/runner.js` | 一次性任务驱动：建 agent → followup → 等静默 → 打印 → 定退出码 |
+| `plugins/runner.js` | 一次性任务驱动：建 agent → followup → 等静默 → 打印 → 定退出码；外加 stderr 进度流 / 信号收尾 / deadline |
+| `plugins/progress.js` | stderr 进度流的渲染层：会话事件 → 带秒数、限宽、无 ANSI 的逐行进度 |
 | `plugins/multi-edit.js` | 自定义工具：`multi_edit` 批量字面替换（可跨文件、按文件原子） |
 | `plugins/prompt-sections.js` | 系统提示词补充段：一次性会话契约 / 工作纪律 / 工具取舍 |
 | `plugins/env-context.js` | 运行时上下文：日期 / 平台 / git 分支与工作树脏净（只注入一次） |
@@ -64,7 +80,7 @@ grep 回答「这段文字出现在哪」，`lsp` 回答「这个符号到底绑
 
 **覆盖范围**：`.ts` `.tsx` `.mts` `.cts` `.js` `.jsx` `.mjs` `.cjs`，server 是 devDependency `typescript@7` 自带的**原生二进制**（`tsc --lsp -stdio`）。命令直指 `node_modules/@typescript/typescript-<platform>-<arch>/lib/tsc`，不走 `node_modules/.bin/tsc`——后者是个 node 脚本再 `execve` 到同一个二进制，白搭一次 Node 启动（实测 `initialize` 57–314ms vs 直连 9–16ms）。路径由 `!!js` 从 `baseUrl` 按平台拼出，所以换平台后 `npm i` 装上对应的原生包即可；**装不上就是 boot 期响亮失败**（`subprocess-local: command "…" is not an executable file`），不会静默降级成「查不到引用」。语言服务器进程本身是惰性的，首次匹配查询才 spawn。
 
-**`jsconfig.json` 是前提，不是可选项**。没有它，TypeScript 把每个「打开即查」的文件当独立推断项目，`findReferences` 只报本文件内的引用——实测查 `plugins/runner.js` 的 `summarize` 只得 **2 处**（真实 6 处，漏掉 `test/test-runner.js` 里的 import 与三处调用）。**查引用不全比没有这个工具更危险**：模型会拿「仓库内没有其他引用」当结论去改签名。加上之后是 6 处。这个文件只服务语言服务器（`checkJs: false` + `noEmit: true`），仓库没有 tsc 构建步骤，它不进任何构建或测试命令。
+**`jsconfig.json` 是前提，不是可选项**。没有它，TypeScript 把每个「打开即查」的文件当独立推断项目，`findReferences` 只报本文件内的引用——实测查 `plugins/runner.js` 的 `summarize` 只得**本文件内的 3 处**（真实 7 处，漏掉 `test/test-runner.js` 里的 import 与三处调用）。**查引用不全比没有这个工具更危险**：模型会拿「仓库内没有其他引用」当结论去改签名。加上之后是 7 处。这个文件只服务语言服务器（`checkJs: false` + `noEmit: true`），仓库没有 tsc 构建步骤，它不进任何构建或测试命令。
 
 **加别的语言**：在 `cordis.yml` 的 `lsp-stdio` 行 `servers:` 下再开一个条目，给它自己的 `command` / `args` / `extensionToLanguage`。路由只按小写扩展名，且一个扩展名只能属于一个 provider——两个 provider 抢同一个扩展名会 `LSP_CONFLICT`（boot 期失败），没人认领的扩展名查询抛 `LSP_UNAVAILABLE`。`command` 必须是绝对路径或裸 PATH 名，含 `/` 的相对路径会被 `subprocess-local` 拒绝。
 
