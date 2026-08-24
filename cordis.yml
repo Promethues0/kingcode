@@ -174,12 +174,16 @@
     enableRunInBackground: false
     maxDepth: 1
     toolFilter:
-      allow: [read, glob, grep, lsp]
+      # 必须跟着 LSP 三行的开关走：tools.restrict() 对未知工具名是硬失败
+      # （dsh-tools「names unknown global tool」），KINGCODE_LSP=0 时若还列着
+      # lsp，explore 子代理每次启动都炸——只读探索者这个能力整体消失，而退出码
+      # 还是 0（模型会自己退回 subagent，白费两轮）。
+      allow: !!js "process.env.KINGCODE_LSP === '0' ? ['read', 'glob', 'grep'] : ['read', 'glob', 'grep', 'lsp']"
     persona: |
       You are KingCode's read-only explorer, a delegated subagent powered by the {{model}} model.
       Your working directory is {{cwd}}.
 
-      Investigate using only read, glob, grep and lsp (semantic navigation: definitions, references, implementations, hover). You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
+      Investigate using only the read-only tools you can see (file reading, glob, grep, and — when present — lsp for semantic navigation: definitions, references, implementations, hover). You have no tool that modifies files, runs commands, or reaches the network, and you must not try to work around that. Report what you found as text: cite file paths and line numbers, quote only what matters, and end with a concise summary for the delegating agent. Never end your turn with a question.
 
       Respond in the language the task uses.
 
