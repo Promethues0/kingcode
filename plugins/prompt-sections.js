@@ -46,14 +46,34 @@ Do exactly what was asked. Do not add unrequested README files, comments, error 
  * 工具取舍（order 199）—— 必须排在上游 100-105 的各工具指导段之后，
  * 才谈得上仲裁「这几个工具之间怎么选」。
  */
-export const TOOL_ROUTING = `Choosing among the tools above:
+const TOOL_ROUTING_TEMPLATE = `Choosing among the tools above:
 
 - Use grep and glob to find code. They are faster than shell equivalents, and they avoid the quoting and escaping mistakes that bash -c invites. Reach for bash for running things, not for searching.
-- grep answers "where does this text appear"; lsp answers "what does this symbol actually bind to". When the question is who really calls or overrides something — same-named symbols in different modules, overloads, dynamic dispatch — start with lsp findReferences rather than grepping the name and guessing which hits are the same symbol.
-- Use todo_write only when the task genuinely has three or more distinct steps worth tracking. For a single edit or a lookup it is pure overhead.
-- Delegate only self-contained investigations whose conclusion is all you need back; delegates cannot nest and return text, not edits — make the edits yourself. Use explore (read-only: read/glob/grep/lsp only) when the investigation must not touch the tree; use subagent when the child needs bash or the web.
+<<LSP_BULLET>>- Use todo_write only when the task genuinely has three or more distinct steps worth tracking. For a single edit or a lookup it is pure overhead.
+- Delegate only self-contained investigations whose conclusion is all you need back; delegates cannot nest and return text, not edits — make the edits yourself. Use explore (read-only: read/glob/grep<<LSP_IN_EXPLORE>> only) when the investigation must not touch the tree; use subagent when the child needs bash or the web.
 - When an answer depends on facts that may have changed since your training — current API signatures, package versions, release notes — verify with web_fetch or web_search instead of answering from memory. For code in this repository, read the code; the web tools are for the world outside it.
 - Shell commands time out after 120s by default (cap 600s). Pass timeoutMs explicitly for builds, installs, or test suites that legitimately run longer.`
+
+/** 只在 lsp 工具真的挂着时才说的那条（KINGCODE_LSP=0 会把三行 LSP 条目整体 disable）。 */
+const LSP_BULLET = '- grep answers "where does this text appear"; lsp answers "what does this symbol actually bind to". When the question is who really calls or overrides something — same-named symbols in different modules, overloads, dynamic dispatch — start with lsp findReferences rather than grepping the name and guessing which hits are the same symbol.\n'
+
+/**
+ * 按 lsp 是否可用组装一次性 CLI 的工具取舍段。
+ *
+ * 为什么要这个开关：提示词是静态文本，不随组合树走。KINGCODE_LSP=0 关掉 LSP
+ * 三行之后，若这段还在推销 lsp，模型会去调一个不存在的工具——后果是响亮的
+ * UNKNOWN_TOOL，不至于静默出错，但白费一轮，也让提示词与工具面自相矛盾。
+ * @param lsp - 组合树里是否挂了 lsp 工具。
+ * @returns 该段正文。
+ */
+export function buildToolRouting(lsp) {
+  return TOOL_ROUTING_TEMPLATE
+    .replace('<<LSP_BULLET>>', lsp ? LSP_BULLET : '')
+    .replace('<<LSP_IN_EXPLORE>>', lsp ? '/lsp' : '')
+}
+
+/** 一次性 CLI 的工具取舍（order 199，lsp 挂着时的完整版；见 buildToolRouting）。 */
+export const TOOL_ROUTING = buildToolRouting(true)
 
 /**
  * 交互式 Web 形态的工具取舍（order 199，与 TOOL_ROUTING 互斥，同一频位）。
@@ -77,6 +97,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   discipline: true,
   toolRouting: true,
   webRouting: false,
+  lsp: true,
 })
 
 /**
@@ -85,7 +106,8 @@ export const DEFAULT_CONFIG = Object.freeze({
  * toolRouting 与 webRouting 同占 199：两者互斥，同时打开会重名以外的方式撞 order，
  * 所以这里 fail loud 而不是悄悄注册两段。
  * @param ctx - 插件上下文（需 systemPrompt 服务）。
- * @param config - 四个 boolean 开关，缺省见 DEFAULT_CONFIG。
+ * @param config - boolean 开关，缺省见 DEFAULT_CONFIG；lsp 控制工具取舍段里
+ *   要不要提 lsp（组合树用 KINGCODE_LSP 关掉 LSP 时，这里也要跟着关）。
  */
 export function apply(ctx, config = {}) {
   const flags = { ...DEFAULT_CONFIG, ...config }
@@ -94,6 +116,6 @@ export function apply(ctx, config = {}) {
   }
   if (flags.sessionContract) ctx.systemPrompt.section({ name: 'kingcode:session-contract', order: 1, text: SESSION_CONTRACT })
   if (flags.discipline) ctx.systemPrompt.section({ name: 'kingcode:discipline', order: 5, text: DISCIPLINE })
-  if (flags.toolRouting) ctx.systemPrompt.section({ name: 'kingcode:tool-routing', order: 199, text: TOOL_ROUTING })
+  if (flags.toolRouting) ctx.systemPrompt.section({ name: 'kingcode:tool-routing', order: 199, text: buildToolRouting(flags.lsp) })
   if (flags.webRouting) ctx.systemPrompt.section({ name: 'kingcode:web-routing', order: 199, text: WEB_ROUTING })
 }

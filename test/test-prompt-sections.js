@@ -9,7 +9,7 @@
  * 跑法：node test/test-prompt-sections.js（失败退出码 1）
  */
 
-import { apply, DEFAULT_CONFIG, SESSION_CONTRACT, DISCIPLINE, TOOL_ROUTING, WEB_ROUTING } from '../plugins/prompt-sections.js'
+import { apply, buildToolRouting, DEFAULT_CONFIG, SESSION_CONTRACT, DISCIPLINE, TOOL_ROUTING, WEB_ROUTING } from '../plugins/prompt-sections.js'
 
 let failed = 0
 const check = (ok, label, extra = '') => {
@@ -29,8 +29,8 @@ function collectSections(config) {
 const sections = collectSections()
 
 eq(sections.length, 3, '不传 config 时注册了三段（一次性 CLI 的现状）')
-eq(JSON.stringify(DEFAULT_CONFIG), JSON.stringify({ sessionContract: true, discipline: true, toolRouting: true, webRouting: false }),
-  '默认开关：前三段开、webRouting 关')
+eq(JSON.stringify(DEFAULT_CONFIG), JSON.stringify({ sessionContract: true, discipline: true, toolRouting: true, webRouting: false, lsp: true }),
+  '默认开关：前三段开、webRouting 关、lsp 开')
 
 // 上游已占用的 order：-100 identity、0 persona、50 plan:policy、100-105 fs/search/bash、
 // 106 jobs、110/111 web、114 goal、115 workflow、116 ralph、116.5 subagent。
@@ -98,6 +98,20 @@ check(webRouting.text === WEB_ROUTING && webRouting.fn === undefined, 'web-routi
 let threw = false
 try { collectSections({ webRouting: true }) } catch { threw = true }
 check(threw, 'toolRouting 与 webRouting 同时打开会抛错')
+
+// lsp 开关：提示词是静态文本，不随组合树走——KINGCODE_LSP=0 关掉 LSP 三行后，
+// 这段若还在推销 lsp，模型会去调一个不存在的工具（响亮的 UNKNOWN_TOOL，白费一轮）
+const routingNoLsp = buildToolRouting(false)
+check(!/\blsp\b/.test(routingNoLsp), 'lsp 关掉后工具取舍段一个字都不提 lsp', routingNoLsp.match(/.*lsp.*/)?.[0] ?? '')
+check(routingNoLsp.includes('read/glob/grep only'), 'lsp 关掉后 explore 的只读工具表也跟着改')
+check(/\blsp findReferences\b/.test(TOOL_ROUTING), 'lsp 开着时给出 grep 与 lsp 的分工')
+check(TOOL_ROUTING.includes('read/glob/grep/lsp only'), 'lsp 开着时 explore 的工具表含 lsp')
+check(!routingNoLsp.includes('<<') && !TOOL_ROUTING.includes('<<'), '两个变体都没有残留的占位标记')
+check(routingNoLsp.split('\n').length < TOOL_ROUTING.split('\n').length, 'lsp 关掉后确实少了一条，不是原样返回')
+
+const lspOffSections = collectSections({ lsp: false })
+const offRouting = lspOffSections.find(s => s.name === 'kingcode:tool-routing')
+check(offRouting !== undefined && !/\blsp\b/.test(offRouting.text), 'apply 把 lsp 开关透传给注册的段')
 
 // Web 段的载荷：每条都对照 standard preset / web 组合树实况写，改没了就该有人知道
 check(WEB_ROUTING.includes('ask_user_question'), 'Web 取舍告诉模型可以向用户提问（standard preset 挂 tool-ask-user）')

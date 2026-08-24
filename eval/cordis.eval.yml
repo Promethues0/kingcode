@@ -250,6 +250,10 @@
 
 - id: kingcode-prompt-sections
   name: '../plugins/prompt-sections.js'
+  config:
+    # 与下方 LSP 三行同一个开关：关掉 LSP 后这段就不该再推销 lsp 工具，
+    # 否则模型会去调一个不存在的工具（响亮的 UNKNOWN_TOOL，白费一轮）
+    lsp: !!js "process.env.KINGCODE_LSP !== '0'"
 
 # 运行时上下文：日期 / 平台 / git 分支与工作树脏净（context 而非 section：只在文本
 # 变化时重新注入，稳定快照全程只占一次；git 只在 apply 时拍一次快照，不在每步 spawn）

@@ -68,7 +68,7 @@ grep 回答「这段文字出现在哪」，`lsp` 回答「这个符号到底绑
 
 **加别的语言**：在 `cordis.yml` 的 `lsp-stdio` 行 `servers:` 下再开一个条目，给它自己的 `command` / `args` / `extensionToLanguage`。路由只按小写扩展名，且一个扩展名只能属于一个 provider——两个 provider 抢同一个扩展名会 `LSP_CONFLICT`（boot 期失败），没人认领的扩展名查询抛 `LSP_UNAVAILABLE`。`command` 必须是绝对路径或裸 PATH 名，含 `/` 的相对路径会被 `subprocess-local` 拒绝。
 
-**整体关闭**：`KINGCODE_LSP=0`。三行都带 `disabled: !!js "process.env.KINGCODE_LSP === '0'"`（loader 支持条目级 `disabled`），关掉后 `lsp` 工具连同上游那段工具指导一起从请求里消失，其余能力不受影响。唯一残留：`plugins/prompt-sections.js` 的工具取舍段仍会提一句 lsp——那是静态文本，不随组合树开关走；真调用会得到 `UNKNOWN_TOOL`，是响亮的，不是静默的。
+**整体关闭**：`KINGCODE_LSP=0`。三行都带 `disabled: !!js "process.env.KINGCODE_LSP === '0'"`（loader 支持条目级 `disabled`），关掉后 `lsp` 工具连同上游那段工具指导一起从请求里消失。`plugins/prompt-sections.js` 的工具取舍段读同一个环境变量（组合树里 `lsp: !!js "process.env.KINGCODE_LSP !== '0'"`），所以提示词也跟着不再提 lsp——实测两种模式下「提示词提到 lsp 的次数」与「工具表里有没有 lsp」始终一致，不会出现提示词推销一个不存在的工具。
 
 ## 品牌层 `web-brand/`
 
