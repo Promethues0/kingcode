@@ -64,11 +64,21 @@ const ORIGINAL = 'writeResultFile'
 /** 现名在 runner.js 里的出现次数下限（当前 6 次：1 处定义 + 5 处调用）。低于它 = 源码漂移，抛 */
 const MIN_HITS = 3
 
-/** 本次答案的候选池：都是「像仓库私有命名」的名字，随机取一个，其余用来堵押注式回答 */
-const CANDIDATES = ['write', 'emit', 'dump', 'flush', 'persist', 'record']
-  .flatMap(verb => ['ResultFile', 'RunResult', 'MachineResult', 'ResultRecord', 'ExitRecord', 'OutcomeFile']
-    .map(noun => verb + noun))
-  .filter(name => name !== ORIGINAL)
+/**
+ * 本次答案的候选池：运行时生成，**不是写死的清单**。
+ *
+ * 写死的池子让随机化可以被反查：读一遍这个文件拿到全部候选，再在副本里逐个 grep，
+ * 恰好命中一个就是本次答案——全程不理解一行代码。实证过。名字带一段每次都变的
+ * 后缀之后，池子不再是「读得到就能穷举」的有限集合。
+ * 其余候选仍用来堵押注式回答（stdout 里出现多个候选即 FAIL）。
+ */
+function makeCandidates() {
+  const tag = Math.random().toString(36).slice(2, 6) // 每次不同的 4 位后缀
+  return ['write', 'emit', 'dump', 'flush', 'persist', 'record']
+    .flatMap(verb => ['ResultFile', 'RunResult', 'MachineResult', 'ResultRecord', 'ExitRecord', 'OutcomeFile']
+      .map(noun => verb + noun + tag.charAt(0).toUpperCase() + tag.slice(1)))
+    .filter(name => name !== ORIGINAL)
+}
 
 /** 洗牌（Fisher–Yates）：候选的挑选顺序每次都不同 */
 function shuffled(list) {
@@ -160,7 +170,8 @@ export default {
 
     const copy = readAll(cwd)
     // 本次答案：挑一个副本里还完全不存在的候选名，免得改名后撞上别处的既有标识符
-    const answer = shuffled(CANDIDATES).find(name => copy.every(f => !f.text.includes(name)))
+    const candidates = makeCandidates()
+    const answer = shuffled(candidates).find(name => copy.every(f => !f.text.includes(name)))
     if (answer === undefined) throw new Error('候选函数名在副本里全都撞了名，选不出本次答案')
 
     const runnerRel = 'plugins/runner.js'
@@ -182,7 +193,7 @@ export default {
       throw new Error(`本次答案 ${answer} 在副本里出现于 ${JSON.stringify(carriers)}，只该出现在 ${runnerRel}`)
     }
 
-    return { cwd, answer, files, repoRoot }
+    return { cwd, answer, candidates, files, repoRoot }
   },
 
   async grade({ stdout, exitCode, timedOut, sessionFile, sessionsRoot, sessionId, prepared }) {
@@ -208,7 +219,7 @@ export default {
 
     // ② 答案：只认本次随机名，出现任何别的候选名即算押注
     const named = new RegExp(`\\b${answer}\\b`).test(stdout)
-    const others = CANDIDATES.filter(name => name !== answer && new RegExp(`\\b${name}\\b`).test(stdout))
+    const others = (prepared.candidates ?? []).filter(name => name !== answer && new RegExp(`\\b${name}\\b`).test(stdout))
     const pass = named && others.length === 0 && exitCode === 0
     return {
       pass,

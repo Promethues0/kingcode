@@ -154,18 +154,25 @@ function scanForbidden(cwd, testFiles, addedSet) {
 }
 
 /**
- * 变异体与阴性对照交错成一条队列：两者走完全相同的通道（原地换入 duration.js、跑同一套测试），
- * 测试无从知道自己正在被喂哪一种。交错只是不让「第几次运行是对照」成为可硬编码的规律；
- * 每轮都是独立的 node 进程、同一份 cwd/argv/env，合法测试与顺序无关，判分因此仍然确定。
+ * 变异体与阴性对照打乱成一条队列：两者走完全相同的通道（原地换入 duration.js、跑同一套测试），
+ * 测试无从知道自己正在被喂哪一种。
+ *
+ * **顺序必须每次随机**，不能是固定交错：固定顺序等于把「第几次运行是对照」写成了公开规律，
+ * 一个能跨进程数数的测试（计数落盘即可，`createRequire` 拼出 'f'+'s' 就绕过黑名单）
+ * 只要在对照的序号上放行、其余判失败，就能零行为断言地拿满分——实证过。随机之后这条路
+ * 需要它猜对一个每次都变的排列，而它没有任何信息可依据。
+ * 每轮仍是独立的 node 进程、同一份 cwd/argv/env，合法测试与顺序无关，判分因此仍然确定。
  */
 function buildQueue(mutants, controls) {
-  const queue = []
-  const pending = controls.map(c => ({ kind: 'control', ...c }))
-  mutants.forEach((m, i) => {
-    queue.push({ kind: 'mutant', ...m })
-    if (i % 2 === 1 && pending.length > 0) queue.push(pending.shift())
-  })
-  queue.push(...pending)
+  const queue = [
+    ...mutants.map(m => ({ kind: 'mutant', ...m })),
+    ...controls.map(c => ({ kind: 'control', ...c })),
+  ]
+  // Fisher-Yates：判分器自己用真随机，不给作弊者可复现的种子
+  for (let i = queue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[queue[i], queue[j]] = [queue[j], queue[i]]
+  }
   return queue
 }
 
