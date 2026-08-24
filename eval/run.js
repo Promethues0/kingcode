@@ -220,7 +220,13 @@ async function runAttempt(task, attempt) {
       cwd,
       env: {
         ...process.env,
-        ...(prepared.env ?? {}),
+        // 评测口径不该被跑评测的人的 shell 决定：谁在自己终端里 export 过
+        // KINGCODE_DEADLINE_MS，每个任务都会提前退 4（而 timedOut 是 false，
+        // grade 只看到一个莫名其妙的非零退出码）；KINGCODE_QUIET 则会把
+        // stderr.txt 清空，事后翻证据时什么都没有。显式抹掉，不继承。
+        KINGCODE_DEADLINE_MS: undefined,
+        KINGCODE_QUIET: undefined,
+        ...(prepared.env ?? {}), // 任务自己要设就随它（覆盖在抹除之后）
         KINGCODE_RESULT_FILE: resultFile,
         DSH_SNAPSHOT: '1', // 会话明文 jsonl，评测证据可直接翻
         KINGCODE_EVAL_SESSIONS_ROOT: sessionsRoot,

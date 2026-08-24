@@ -209,5 +209,27 @@ function harness({ quiet = false } = {}) {
   check(clip('中文 ok', 80) === '中文 ok', 'clip 不动正常可打印字符（含 CJK）')
 }
 
+// ── 并发工具调用：完成行必须带工具名 ────────────────────────────────────────
+// 一次 13 个 read 是常见的，收尾行会乱序回来；全是「└ 完成」时「卡在哪一步」
+// 这个卖点就退化了
+{
+  const lines = []
+  const p = createProgress({ write: c => lines.push(c), quiet: false, cwd: process.cwd() })
+  const call = (id, name, args) => p.event({ type: 'tool/call', data: { turn: 1, step: 1, callId: id, name, arguments: JSON.stringify(args) } }, { main: true })
+  const done = id => p.event({ type: 'tool/result', data: { turn: 1, step: 1, message: { source: { callId: id } }, content: [] } }, { main: true })
+  call('a', 'read', { file_path: 'x.js' })
+  call('b', 'grep', { pattern: 'foo' })
+  done('b') // 乱序回来：先完成的是后发的那个
+  done('a')
+  const text = lines.join('')
+  check(/└ grep 完成/.test(text), '完成行带上工具名（grep）', text.split('\n').filter(l => l.includes('└')).join(' / '))
+  check(/└ read 完成/.test(text), '完成行带上工具名（read）')
+  check(!/└ 完成/.test(text), '不再有匿名的「└ 完成」')
+  // callId 认不出来时（残缺事件）也不能抛，只是没有名字
+  const before = lines.length
+  p.event({ type: 'tool/result', data: { turn: 1, step: 1, message: { source: { callId: 'ghost' } } } }, { main: true })
+  check(lines.length > before, '未配对的 tool/result 仍出一行，不抛错')
+}
+
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)

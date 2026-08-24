@@ -177,6 +177,9 @@ export function installSignalHandlers(proc, handlers) {
  * @param ending - 结局类型：{ termination: 'normal'|'deadline'|'signal', signal }。
  */
 function writeResultFile(sessionId, outcome, exitCode, io, ending = { termination: 'normal', signal: null }) {
+  // outcome 可能没有（硬退时轮次还没闭合）——那也要写：harness 最需要区分
+  // 「被外力砍掉」的恰恰就是这种时候，只剩一个退出码是不够的
+  outcome = outcome ?? { text: '', reason: undefined }
   const path = process.env['KINGCODE_RESULT_FILE']
   if (path === undefined || path === '') return
   const record = {
@@ -310,7 +313,11 @@ async function run(ctx, task, io) {
    */
   async function windDown(ending) {
     if (winding) {
-      progress.note(`（${ending.label}：已在收尾中，再来一个信号将立即硬退）`)
+      progress.note(truncating
+        ? `（${ending.label}：已在收尾中，再来一个信号将立即硬退）`
+        // 正常出口：答案已经算出来了，正在写盘。此时硬退等于把它扔掉，所以
+        // 只有「同一信号再来一次」才放弃——说清楚，别让人以为按了没反应。
+        : `（${ending.label}：任务已完成、正在写盘；再发一次同一信号才会放弃这次的回答）`)
       return
     }
     winding = true
@@ -319,6 +326,7 @@ async function run(ctx, task, io) {
     // dispose 或取消卡住时的最后一道闸：到点直接硬退，别让人再也退不出去
     setTimeout(() => {
       io.stderr.write(`kingcode: 收尾超过 ${HARD_EXIT_MS / 1000}s 仍未结束，硬退（退出码 ${ending.exitCode}）\n`)
+      writeResultFile(sessionId, undefined, ending.exitCode, io, ending)
       process.exit(ending.exitCode)
     }, HARD_EXIT_MS)
 
@@ -352,6 +360,7 @@ async function run(ctx, task, io) {
       // INT → TERM → KILL，若只认「同一信号第二次」，那记 TERM 就白发了。
       if (truncating) {
         io.stderr.write(`kingcode: 收尾期间又收到 ${signal}，立即硬退（退出码 ${exitCode}）\n`)
+        writeResultFile(sessionId, undefined, exitCode, io, { termination: 'signal', signal })
         process.exit(exitCode)
         return
       }
@@ -359,6 +368,7 @@ async function run(ctx, task, io) {
     },
     hard: (signal, exitCode) => {
       io.stderr.write(`kingcode: 再次收到 ${signal}，立即硬退（退出码 ${exitCode}）\n`)
+      writeResultFile(sessionId, undefined, exitCode, io, { termination: 'signal', signal })
       process.exit(exitCode)
     },
   })

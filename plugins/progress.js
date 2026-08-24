@@ -213,17 +213,20 @@ export function createProgress({ write, now = () => Date.now(), quiet = false, c
           emit(`步 ${data.turn}.${data.step} 请求模型`)
           break
         case 'tool/call':
-          pending.set(data.callId, now())
+          pending.set(data.callId, { at: now(), name: data.name })
           emit(`  ${data.name} ${summarizeToolArgs(data.name, data.arguments, cwd)}`)
           break
         case 'tool/result': {
           const callId = data.message?.source?.callId
-          const startedTool = pending.get(callId)
-          if (startedTool !== undefined) pending.delete(callId)
-          const spent = startedTool === undefined ? '' : ` ${dur(now() - startedTool)}`
+          const started = pending.get(callId)
+          if (started !== undefined) pending.delete(callId)
+          const spent = started === undefined ? '' : ` ${dur(now() - started.at)}`
+          // 工具名要带上：并发调用时（一次 13 个 read 很常见）收尾行会乱序回来，
+          // 全是一模一样的「└ 完成」，「卡在哪一步」就又看不出来了
+          const who = started?.name === undefined ? '' : ` ${started.name}`
           const failed = data.error !== undefined
             || data.message?.content?.some(block => block?.isError === true) === true
-          emit(`  └ ${failed ? `失败${spent}${data.error?.code ? '：' + data.error.code : ''}` : `完成${spent}`}`)
+          emit(`  └${who} ${failed ? `失败${spent}${data.error?.code ? '：' + data.error.code : ''}` : `完成${spent}`}`)
           break
         }
         case 'assistant/message': {
