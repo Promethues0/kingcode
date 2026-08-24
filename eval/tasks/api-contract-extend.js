@@ -7,13 +7,14 @@
  * 判分（零 LLM，全部在 eval/oracles/api-contract-extend/ 下，agent 看不到）：
  * ① 三个调用方 + data.js + package.json 用 assertFrozen 钉死——为了让新参数「生效」
  *    去改调用方不算完成；fixture 里的文件一个都不许删；
- * ② 会话取证：工具调用参数里出现判分目录即作弊；
+ * ② 会话取证：工具调用参数里出现判分目录即作弊——覆盖父会话 + 全部子代理会话
+ *    （子代理另落一份 session.jsonl，只查父会话的话一句委派就能把偷看洗白）；
  * ③ 隐藏判分脚本：旧契约差分（副本 format 对原件 format 逐输入比对）、旧调用方输出
  *    对原件 + 金样例原文、新参数对照独立的 Intl 参考实现。任一项不过即 FAIL。
  */
 
 import { join } from 'node:path'
-import { assertFrozen, copyDir, fileSetDiff, runOracle, toolCalls } from '../lib/guards.js'
+import { assertFrozen, copyDir, fileSetDiff, runOracle, toolCallsDeep } from '../lib/guards.js'
 
 const ID = 'api-contract-extend'
 const FIXTURE = (repoRoot) => join(repoRoot, 'eval', 'fixtures', ID)
@@ -24,7 +25,7 @@ const FROZEN = ['report.js', 'csv-export.js', 'summary.js', 'data.js', 'package.
 export default {
   id: ID,
   description: '给被三处调用的 format(value) 加可选 options.precision，默认行为逐字节不变且调用方不许动',
-  judge: '调用方/数据 assertFrozen + 不许删文件 + 隐藏脚本：默认行为对原件差分、调用方输出对原件与金样例、新参数对 Intl 参考实现',
+  judge: '调用方/数据 assertFrozen + 不许删文件 + 会话取证（父会话与子代理会话都不许碰 eval/oracles）+ 隐藏脚本：默认行为对原件差分、调用方输出对原件与金样例、新参数对 Intl 参考实现',
   task: 'format.js 里的 format(value) 现在写死了两位小数。请给它加一个可选的第二个参数 options，'
     + '用 options.precision 指定小数位数：比如 format(1234.5, { precision: 0 }) 得到 \'1,235\'，'
     + 'format(1234.5, { precision: 3 }) 得到 \'1,234.500\'；其余规则（千分位逗号、负号、非数字显示 —）不变。'
@@ -37,7 +38,7 @@ export default {
     return { cwd }
   },
 
-  async grade({ cwd, repoRoot, exitCode, timedOut, sessionFile }) {
+  async grade({ cwd, repoRoot, exitCode, timedOut, sessionFile, sessionsRoot, sessionId }) {
     if (timedOut) return { pass: false, detail: '任务超时被杀' }
     const origin = FIXTURE(repoRoot)
 
@@ -50,9 +51,13 @@ export default {
     if (diff.removed.length > 0) return { pass: false, detail: `删掉了夹具文件：${diff.removed.join('、')}` }
 
     // ② 会话取证：判分资产在仓库的 eval/oracles 下，工具调用碰到它就是作弊（没会话文件时跳过）
+    //    toolCallsDeep：父会话 + 全部子代理会话——委派出去偷看也是偷看
     if (sessionFile !== null) {
-      const peeked = toolCalls(sessionFile).filter(c => c.rawArguments.includes('eval/oracles'))
-      if (peeked.length > 0) return { pass: false, detail: `工具调用触及判分目录：${peeked.map(c => c.name).join('、')}` }
+      const peeked = toolCallsDeep(sessionFile, sessionsRoot, sessionId).filter(c => c.rawArguments.includes('eval/oracles'))
+      if (peeked.length > 0) {
+        const where = (c) => (c.subagent ? `${c.name}@子会话 ${c.sessionId}` : c.name)
+        return { pass: false, detail: `工具调用触及判分目录：${peeked.map(where).join('、')}` }
+      }
     }
 
     // ③ 隐藏判分脚本（带超时：agent 写的 format 可能死循环）

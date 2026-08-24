@@ -12,7 +12,7 @@
  * 每个任务：prepare（造独立运行目录，fixture 用副本）→ spawn CLI
  * （--config eval/cordis.eval.yml，env 带 KINGCODE_RESULT_FILE / DSH_SNAPSHOT=1 /
  * KINGCODE_EVAL_SESSIONS_ROOT）→ 收 stdout/退出码/机读结果/耗时 → 定位明文会话
- * jsonl、聚合真实用量 → 判分器打分。判分零 LLM：只用退出码 / 正则 / 引擎复算
+ * jsonl（含全部子代理会话）、聚合真实用量 → 判分器打分。判分零 LLM：只用退出码 / 正则 / 引擎复算
  * （金样例纪律，见 eval/README.md）。
  *
  * 状态五态：pass / fail / xfail（任务标了 expectFail 且确实失败）/ xpass（标了
@@ -34,7 +34,7 @@ import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { findSessionFile, sessionUsage } from './lib/guards.js'
+import { childSessionFiles, findSessionFile, sessionUsageDeep } from './lib/guards.js'
 
 const EVAL_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(EVAL_DIR, '..')
@@ -153,7 +153,9 @@ function statusOf({ pass, harnessError }, expectFail) {
   return pass ? 'pass' : 'fail'
 }
 
-const EMPTY_USAGE = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0, llmCalls: 0 }
+// sessions：这笔用量摊在几份会话里（父会话 + 子代理会话）。子代理另开一份 jsonl，
+// 只算父会话的「真实花费」实测能低估一半以上（一次实例：父 in+out 12365 / 子 16000）。
+const EMPTY_USAGE = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0, llmCalls: 0, sessions: 0 }
 function addUsage(into, u) {
   if (!u) return into
   for (const k of Object.keys(EMPTY_USAGE)) into[k] += u[k] ?? 0
@@ -204,6 +206,7 @@ async function runAttempt(task, attempt) {
     durationMs: 0,
     sessionId: null,
     sessionFile: null,
+    childSessionFiles: [],
     reasonKind: null,
     errorCode: null,
     usage: null,
@@ -243,7 +246,10 @@ async function runAttempt(task, attempt) {
     info.reasonKind = result?.reasonKind ?? null
     info.errorCode = result?.errorCode ?? null
     info.sessionFile = findSessionFile(sessionsRoot, info.sessionId)
-    info.usage = info.sessionFile === null ? null : sessionUsage(info.sessionFile)
+    // 子代理是**另一份 session.jsonl**（首行带 parentSession/origin:"subagent"）：
+    // 用量按整棵委派树算，路径也一并记进 record——判分存疑时子会话同样要能翻到
+    info.childSessionFiles = info.sessionFile === null ? [] : childSessionFiles(sessionsRoot, info.sessionId)
+    info.usage = info.sessionFile === null ? null : sessionUsageDeep(info.sessionFile, sessionsRoot, info.sessionId)
 
     const graded = await task.grade({
       cwd, runDir: taskDir, repoRoot: REPO_ROOT,
@@ -271,7 +277,7 @@ async function runAttempt(task, attempt) {
 
 function fmtUsage(u) {
   if (!u) return ''
-  return `, ${u.inputTokens}+${u.cacheReadTokens}c in / ${u.outputTokens} out, ${u.llmCalls} 调用`
+  return `, ${u.inputTokens}+${u.cacheReadTokens}c in / ${u.outputTokens} out, ${u.llmCalls} 调用${u.sessions > 1 ? `, ${u.sessions - 1} 个子代理会话` : ''}`
 }
 
 function printRecord(r) {
@@ -306,6 +312,7 @@ async function runTask(task) {
     durationMs: final.durationMs,
     sessionId: final.sessionId,
     sessionFile: final.sessionFile,
+    childSessionFiles: final.childSessionFiles,
     reasonKind: final.reasonKind,
     errorCode: final.errorCode,
     usage: final.usage,
@@ -341,7 +348,7 @@ const count = (s) => records.filter(r => r.status === s).length
 const totalsUsage = { ...EMPTY_USAGE }
 for (const r of records) for (const a of r.attempts) addUsage(totalsUsage, a.usage) // 含重跑：这是真实花费
 const summary = {
-  schema: 'kingcode-eval-result/2',
+  schema: 'kingcode-eval-result/3',
   runId,
   config: 'eval/cordis.eval.yml',
   model: pinnedModel(),

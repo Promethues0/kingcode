@@ -23,12 +23,19 @@
  * ④ agent 退出码 0 且 stdout 含 VERIFY_OK（把最后一行告诉用户）。
  * 另把「首跑是否撞过默认超时」记进 detail，只作参考不判分：补救也是合格表现。
  *
+ * 取证覆盖父会话 + 全部子代理会话（sessionFamilyFiles）：子代理也有 bash，把 verify 委派下去
+ * 是完全合法的做法，只看父会话会把它误判成「一次长调用都没有」——那是判分器的假阴性，不是
+ * agent 的错。放宽的只是「去哪儿找证据」，证据本身一个字没松：夹具照旧冻结、整行 VERIFY_OK
+ * 照旧要有、135s 墙钟照旧要真花掉（这三条 echo 不出来，也委派不掉）。重定向变体（长调用把
+ * 输出写文件、另一次调用读出来）**限定同一份会话内配对**：跨会话认「之前某处等过 135s」会
+ * 凭空多出一条「父会话 sleep 136s + 子代理 echo VERIFY_OK」的路，白送作弊面。
+ *
  * 整体 timeoutMs 给 420s：默认超时被杀一次（120s）+ 重跑到完（135s）+ 模型往返，还有余量。
  * 代价是全量 eval 多 2-3 分钟——值得，这条测的能力别的任务都碰不到。
  */
 
 import { join } from 'node:path'
-import { assertFrozen, copyDir, readSession, toolCalls } from '../lib/guards.js'
+import { assertFrozen, copyDir, readSession, sessionFamilyFiles, toolCalls } from '../lib/guards.js'
 
 const ID = 'long-command-timeout'
 const FIXTURE = (repoRoot) => join(repoRoot, 'eval', 'fixtures', ID)
@@ -88,7 +95,7 @@ const fmtMs = (ms) => (Number.isNaN(ms) ? '无法配对' : `${ms}ms`)
 export default {
   id: ID,
   description: '跑一条要 135s 的 npm run verify：bash 默认 120s 超时，模型须在调用上显式传 timeoutMs',
-  judge: '会话取证：存在 bash 调用 timeoutMs ≥ 135000；某次 bash 结果含整行 VERIFY_OK，且产出它的调用（或其前一次长调用）按事件时间戳实耗 ≥ 135000ms；stdout 含 VERIFY_OK 且退出 0；package.json/scripts/verify.js 与原件逐字节一致',
+  judge: '会话取证（父会话 + 全部子代理会话）：存在 bash 调用 timeoutMs ≥ 135000；某次 bash 结果含整行 VERIFY_OK，且产出它的调用（或同一会话里其前一次长调用）按事件时间戳实耗 ≥ 135000ms；stdout 含 VERIFY_OK 且退出 0；package.json/scripts/verify.js 与原件逐字节一致',
   task: '帮我跑一下 npm run verify 确认它能通过，然后把它输出的最后一行原样告诉我。'
     + '不要改 package.json 和 scripts/ 下的脚本（判分会校验它们与原件一致）。',
   timeoutMs: 420_000,
@@ -98,7 +105,7 @@ export default {
     return { cwd }
   },
 
-  async grade({ cwd, repoRoot, stdout, exitCode, timedOut, sessionFile }) {
+  async grade({ cwd, repoRoot, stdout, exitCode, timedOut, sessionFile, sessionsRoot, sessionId }) {
     if (timedOut) return { pass: false, detail: '任务整体超时被杀（420s）——大概率反复用不够的超时重跑' }
 
     // ① 脚本不许动：缩短等待不算跑过
@@ -115,13 +122,31 @@ export default {
     }
 
     // ② 取证：有没有一次 bash 调用把 timeoutMs 拉到够长
-    const events = readSession(sessionFile)
-    const bashCalls = toolCalls(sessionFile).filter(c => c.name === 'bash')
+    //    覆盖父会话 + 全部子代理会话：子代理也有 bash，verify 委派下去跑是合法路径。
+    //    每份会话各自解析、各自配对 callId——跨会话共用一张 callId 表既没必要，
+    //    还会给「A 会话等 135s、B 会话 echo 一行」开口子。
+    const views = sessionFamilyFiles(sessionFile, sessionsRoot, sessionId).map((file, i) => {
+      const events = readSession(file)
+      return {
+        file,
+        subagent: i > 0,
+        events,
+        elapsed: elapsedByCallId(events),
+        calls: toolCalls(file).filter(c => c.name === 'bash').map(c => ({ ...c, subagent: i > 0 })),
+      }
+    })
+    const viewOf = new Map()
+    for (const v of views) for (const c of v.calls) viewOf.set(c, v)
+    const bashCalls = views.flatMap(v => v.calls)
+    const resultTextOf = (c) => toolResultText(viewOf.get(c).events, c.callId)
+    const elapsedOf = (c) => viewOf.get(c).elapsed(c.callId)
     const timeoutOf = (c) => (c.args && typeof c.args === 'object' ? c.args.timeoutMs : undefined)
-    const fmtTimeout = (c) => (timeoutOf(c) === undefined ? '默认' : String(timeoutOf(c)))
+    const fmtTimeout = (c) => `${timeoutOf(c) === undefined ? '默认' : String(timeoutOf(c))}${c.subagent ? '(子)' : ''}`
     const longCalls = bashCalls.filter(c => Number(timeoutOf(c)) >= REQUIRED_TIMEOUT_MS)
-    const hitDefault = bashCalls.some(c => /\[timed out after \d+ms\]/.test(toolResultText(events, c.callId)))
+    const hitDefault = bashCalls.some(c => /\[timed out after \d+ms\]/.test(resultTextOf(c)))
+    const subagentCount = views.length - 1
     const trace = `bash 共 ${bashCalls.length} 次，timeoutMs 依次：${bashCalls.map(fmtTimeout).join('、') || '（无）'}`
+      + `${subagentCount > 0 ? `；另计入 ${subagentCount} 个子代理会话` : ''}`
     if (longCalls.length === 0) {
       return { pass: false, detail: `没有任何 bash 调用带 timeoutMs ≥ ${REQUIRED_TIMEOUT_MS}；${trace}${hitDefault ? '；曾撞默认超时未补救' : ''}` }
     }
@@ -129,25 +154,26 @@ export default {
     // ③ 命令确实在 agent 手里跑完了：某次 bash 的结果文本含整行 VERIFY_OK（先看合格调用，再看其余——
     //    比如长调用把输出重定向到文件、另一次 tail 读出来也算）
     const ordered = [...longCalls, ...bashCalls.filter(c => !longCalls.includes(c))]
-    const marked = ordered.filter(c => MARK_LINE.test(toolResultText(events, c.callId)))
+    const marked = ordered.filter(c => MARK_LINE.test(resultTextOf(c)))
     if (marked.length === 0) {
       return { pass: false, detail: `有 timeoutMs=${fmtTimeout(longCalls[0])} 的 bash 调用，但没有任何 bash 结果含整行 ${MARK}（命令没跑完）；${trace}` }
     }
 
     // ③' 耗时门槛：结果文本可以 echo 出来，135s 的墙钟时间 echo 不出来。产出 VERIFY_OK 的那次调用
     //    自身实耗 ≥ 135s；或者它之前有一次长调用（timeoutMs ≥ 135000）实耗 ≥ 135s（重定向再读出的变体）
-    const elapsed = elapsedByCallId(events)
     const seqOf = (c) => (typeof c.seq === 'number' ? c.seq : -Infinity)
-    const waited = (c) => elapsed(c.callId) >= REQUIRED_TIMEOUT_MS
+    const waited = (c) => elapsedOf(c) >= REQUIRED_TIMEOUT_MS
     let completed
     let waitedCall
     for (const c of marked) {
       if (waited(c)) { completed = c; waitedCall = c; break }
-      const prior = longCalls.find(l => l !== c && seqOf(l) < seqOf(c) && waited(l))
+      // 重定向变体只在**同一份会话**内配对：seq 跨会话不可比，且跨会话认账等于
+      // 白送「一处 sleep 135s、另一处 echo VERIFY_OK」这条作弊路
+      const prior = longCalls.find(l => l !== c && viewOf.get(l) === viewOf.get(c) && seqOf(l) < seqOf(c) && waited(l))
       if (prior !== undefined) { completed = c; waitedCall = prior; break }
     }
     if (completed === undefined) {
-      const tried = marked.map(c => `${short(String(c.args?.command ?? ''), 40)}=${fmtMs(elapsed(c.callId))}`).join('、')
+      const tried = marked.map(c => `${short(String(c.args?.command ?? ''), 40)}=${fmtMs(elapsedOf(c))}`).join('、')
       return {
         pass: false,
         detail: `有 bash 结果含整行 ${MARK}，但产出它的调用实耗不足 ${REQUIRED_TIMEOUT_MS}ms（${tried}），`
@@ -156,8 +182,9 @@ export default {
     }
 
     const evidence = `合格调用 timeoutMs=${fmtTimeout(longCalls[0])}（${short(String(longCalls[0].args.command ?? ''))}）`
+      + `${waitedCall.subagent ? '，跑在子代理会话里' : ''}`
       + `；${MARK} 出自${longCalls.includes(completed) ? '该调用' : `另一次 bash（${short(String(completed.args?.command ?? ''))}）`}`
-      + `；实耗 ${fmtMs(elapsed(waitedCall.callId))}${waitedCall === completed ? '' : `（出自其前的长调用 ${short(String(waitedCall.args?.command ?? ''), 40)}）`}`
+      + `；实耗 ${fmtMs(elapsedOf(waitedCall))}${waitedCall === completed ? '' : `（出自其前的长调用 ${short(String(waitedCall.args?.command ?? ''), 40)}）`}`
       + `；${hitDefault ? '首跑撞默认超时后补救' : '一次到位'}；${trace}`
 
     // ④ 把答案交给用户

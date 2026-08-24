@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node test/test-runner.js && node test/test-progress.js && node test/test-multi-edit.js && node test/test-prompt-sections.js && node test/test-env-context.js && node test/test-mcp-echo-server.js",
+    "test": "node test/test-runner.js && node test/test-progress.js && node test/test-multi-edit.js && node test/test-prompt-sections.js && node test/test-env-context.js && node test/test-guards.js && node test/test-mcp-echo-server.js",
     "check:contrast": "node web-brand/tools/check-contrast.js",
     "smoke": "node bin/kingcode.js \"say hi\"",
     "eval": "node eval/run.js"

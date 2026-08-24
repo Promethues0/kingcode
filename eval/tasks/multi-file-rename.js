@@ -18,7 +18,7 @@
 
 import { copyFileSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { assertFrozen, copyDir, fileSetDiff, listFiles, runOracle, toolCalls } from '../lib/guards.js'
+import { assertFrozen, copyDir, fileSetDiff, listFiles, runOracle, toolCallsDeep } from '../lib/guards.js'
 
 const OLD = 'normalizeEntry'
 const NEW = 'toLedgerEntry'
@@ -91,32 +91,44 @@ function blankCommentsAndStrings(src) {
 }
 
 /** 在 dir 下的 src/*.js 里找旧名标识符，返回 ["src/x.js:12", ...] */
+/** 扫描旧名时跳过的目录：装出来的依赖与评测自己的产物不算 agent 的活。 */
+const SCAN_SKIP = ['node_modules', '.git', '.kingcode', '.kingcode-eval', 'test.js']
+
 function findOldIdentifier(dir) {
   const hits = []
   const re = new RegExp(`\\b${OLD}\\b`)
-  for (const rel of listFiles(join(dir, 'src'))) {
+  // 扫**整个 cwd**而不只是 src/：把 src/ 原样复制到 legacy/（旧名一个字没改）、
+  // src/ 换成 thin re-export，就能让「src/ 无旧名标识符」成立而一处引用都没重命名。
+  // 实证过这条能判绿，所以范围必须是 agent 能放东西的全部地方。
+  for (const rel of listFiles(dir, rel => SCAN_SKIP.some(d => rel === d || rel.startsWith(d + '/')))) {
     if (!/\.(?:m?js|cjs)$/.test(rel)) continue
-    const stripped = blankCommentsAndStrings(readFileSync(join(dir, 'src', rel), 'utf8'))
+    const stripped = blankCommentsAndStrings(readFileSync(join(dir, rel), 'utf8'))
     stripped.split('\n').forEach((line, idx) => { if (re.test(line)) hits.push(`src/${rel}:${idx + 1}`) })
   }
   return hits
 }
 
-/** 会话取证：用了哪些工具、怎么改的——只进 detail */
-function describeProcess(sessionFile) {
+/**
+ * 会话取证：用了哪些工具、怎么改的——只进 detail，不判分。
+ * 覆盖父会话 + 全部子代理会话：改文件的活可以整包委派出去，只数父会话会得到
+ * 「edit×0 write×0」这种与事实相反的取证记录（这里不判分，但记错的证据比没有更坏）。
+ */
+function describeProcess(sessionFile, sessionsRoot, sessionId) {
   if (!sessionFile) return '会话文件缺失，无法取证'
-  const calls = toolCalls(sessionFile)
+  const calls = toolCallsDeep(sessionFile, sessionsRoot, sessionId)
   const count = (name) => calls.filter(c => c.name === name).length
   const bashCmds = calls.filter(c => c.name === 'bash').map(c => String(c.args?.command ?? ''))
   const bulkReplace = bashCmds.some(cmd => /\b(?:sed|perl)\b[^\n]*\b-[a-zA-Z]*[iI]\b/.test(cmd) || /\bsed\b[^\n]*\bs[/|#]/.test(cmd))
+  const delegated = calls.filter(c => c.subagent).length
   return `multi_edit×${count('multi_edit')} edit×${count('edit')} write×${count('write')} bash×${count('bash')}`
     + `${bulkReplace ? '（bash 里用了 sed/perl 批量替换）' : ''}，工具调用共 ${calls.length} 次`
+    + `${delegated > 0 ? `（其中 ${delegated} 次在子代理会话里）` : ''}`
 }
 
 export default {
   id: 'multi-file-rename',
   description: `跨 5 个源文件把函数 ${OLD} 重命名为 ${NEW}（11 处定义/引用，另有注释与字符串里的同名干扰项）`,
-  judge: '隐藏用例复制进副本复跑 + src/ 剥注释字符串后无旧名标识符 + src/ 文件集合不变 + test.js 与原件一致；multi_edit 使用情况只记入 detail',
+  judge: '隐藏用例复制进副本复跑 + src/ 剥注释字符串后无旧名标识符 + src/ 文件集合不变 + test.js 与原件一致；multi_edit 使用情况（含子代理会话）只记入 detail',
   task: `这个小账本库里的函数 ${OLD}（定义在 src/entry.js）名字起得不好，请把它重命名为 ${NEW}。`
     + '所有定义与引用都要改，包括各文件里的 import、export 和调用处，改完不能有遗漏。'
     + '不要改 test.js（判分会校验它与原件一致）。改完跑一下 npm test 确认没弄坏，最后简要说明改了哪些文件。',
@@ -126,11 +138,11 @@ export default {
     return { cwd }
   },
 
-  async grade({ cwd, repoRoot, exitCode, timedOut, sessionFile }) {
+  async grade({ cwd, repoRoot, exitCode, timedOut, sessionFile, sessionsRoot, sessionId }) {
     if (timedOut) return { pass: false, detail: '任务超时被杀' }
     const originDir = join(repoRoot, 'eval', 'fixtures', 'multi-file-rename')
     const oracleSrc = join(repoRoot, 'eval', 'oracles', 'multi-file-rename', 'rename-check.mjs')
-    const process_ = describeProcess(sessionFile)
+    const process_ = describeProcess(sessionFile, sessionsRoot, sessionId)
 
     // ① 测试文件冻结
     const frozen = assertFrozen(cwd, originDir, ['test.js'])
