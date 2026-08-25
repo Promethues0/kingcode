@@ -225,6 +225,19 @@ dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pws
 
 但要知道：**上游 README 从未提及 Windows**，也没有平台支持矩阵。他们的 CI 有 Windows 通道，可其中真正跑 dsh 二进制端到端冒烟的那条被显式标成 `allowFailure`，**不阻塞合并**。也就是说 Windows 是「能跑、有人在意，但不是被保证的路径」。
 
+## 鸿蒙 PC（融合开发引擎）
+
+鸿蒙电脑上装的是**引擎本体，不是瘦客户端**：华为的「融合开发引擎」提供一键 openEuler（Linux 6.6、aarch64）环境，有终端有包管理，所以 bash / git / tsc / LSP / 子代理这套工具面一件不少，CLI 与 Web 两种形态都在虚拟机里跑，Web 由**鸿蒙宿主侧的浏览器**访问。
+
+部署脚本与完整说明在 [`deploy/harmonyos-pc/`](deploy/harmonyos-pc/README.md)：`preflight.sh`（只读探针，先采集这台机器的事实）→ `install.sh`（系统包 / Node / 依赖 / dsh / profile）→ `kingcode-web.sh`（起停 + 看门狗 + 四项体检）。
+
+两处**上游没写、不查一定踩**的坑，仓库里已经处理掉了：
+
+- **`--host 0.0.0.0` 会被 dsh 主动拒绝并退 1**（"intentionally not supported yet for safety"）。要让宿主访问得到，只能用覆盖层直接改 `webserver` 行——`deploy/harmonyos-pc/bind-all.patch.yml`，单独一个 opt-in 文件，**故意不写进 `profile/cordis.patch.yml`**：绑 0.0.0.0 等于把一个能执行任意命令的 agent 暴露给所在网络，那不该是 Mac/Win 上的默认值。
+- **明文 HTTP 到非 loopback 地址 = 浏览器判定为不安全上下文，`crypto.randomUUID` 不存在**，而 dsh 客户端每条 RPC 都要用它铸 rpcId。症状是页面 200、品牌正常、没有任何报错横幅，**工作区永远转圈**——最坏的那种失败。`plugins/insecure-context-shim.js` 走 `webServer.tapIndex`（与品牌层同一条官方缝）补上这个函数，安全上下文里整段跳过，所以 Mac/Win 与本机 localhost 零影响。
+
+Node 的下限是**硬的 22.19.0**（会话压缩顶层具名导入 `node:zlib` 的 zstd API，缺了是链接期 SyntaxError；`pi-ai` 又自报 `engines >= 22.19`），而 openEuler 源里只有 20.x——`dnf install nodejs` 这条路堵死，脚本走 nodejs.org 官方 linux-arm64 tarball 并校验 SHA256。
+
 ## 校验
 
 ```bash

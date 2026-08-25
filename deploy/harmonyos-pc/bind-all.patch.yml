@@ -1,0 +1,26 @@
+# 让 dsh web 绑 0.0.0.0 —— **只给鸿蒙 PC 的虚拟机用**的 opt-in 覆盖层。
+#
+# 为什么必须是单独一个文件、而不是写进 profile/cordis.patch.yml：
+# 绑 0.0.0.0 等于把一个能执行任意命令的 agent 暴露给它所在的网络（上游自己
+# 在 dsh-host-webserver README 里写得很直白：no TLS, no auth, no origin policy）。
+# 写进 profile 补丁层会让 Mac/Win 上的 KingCode 也跟着对外，这是默认值不该做的事。
+#
+# 为什么不能用 `--host 0.0.0.0`：dsh-web-app 的 startup 插件主动拒绝这个值并以
+# 退出码 1 退出（"intentionally not supported yet for safety"）。webserver 行的
+# schema 本身接受 0.0.0.0，所以路径是绕过 CLI 旗标、直接改那一行的 config。
+#
+# 用法：
+#   DSH_HOME=$HOME/.kingcode dsh --profile kingcode \
+#     --patch <本文件的绝对路径> --port 3081
+# 打完补丁务必确认它真的落上了（id 打错时上游只在 stderr 警一句、不报错）：
+#   DSH_HOME=$HOME/.kingcode dsh --profile kingcode --patch <本文件> \
+#     --dump-config | grep -B2 -A8 'id: webserver'
+# provenance 那行（"# == ..., patched by <本文件>"）在目标行**上方**，所以必须带 -B；
+# 只写 -A 的话你要找的那行永远不在输出里。DSH_HOME 也不能省——不带它读的是别的 home。
+#
+# id 定向的补丁**整段替换**目标行的 config（不深合并），所以 port 那个表达式
+# 必须原样重述——漏了它，`--port` 旗标就再也传不进来，永远听 3080。
+- id: webserver
+  config:
+    host: '0.0.0.0'
+    port: !!js ctx.webStartup.port ?? 3080

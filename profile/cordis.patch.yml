@@ -64,6 +64,22 @@
     - id: kingcode-brand
       name: 'kingcode-web-brand'
 
+# ── 不安全上下文垫片 ────────────────────────────────────────────────────────
+# 只在「浏览器和服务不在同一台机器上」时才有意义，但挂着零代价：安全上下文里
+# （Mac/Win 客户端、本机 localhost）垫片自己整段跳过。
+#
+# 治的是什么：明文 HTTP + 非 loopback 主机 = 浏览器判定为 insecure context，
+# `crypto.randomUUID` 在这种上下文里不存在（规范给它打了 [SecureContext]），
+# 而 dsh-client-connection 每发一条 RPC 都要用它铸 rpcId。症状是页面 200、
+# 品牌正常、没有任何报错横幅，工作区永远停在「正在加载中」——最坏的那种失败。
+# 详见 plugins/insecure-context-shim.js 头注释与 deploy/harmonyos-pc/README.md。
+#
+# 包名 `kingcode` 由 setup.sh 的 `dsh plugin add -w $REPO` link 进 profile，
+# 与 preset 里引用仓库插件是同一条路径（根 package.json 无 exports 字段）。
+- insert:
+    - id: kingcode-insecure-context-shim
+      name: 'kingcode/plugins/insecure-context-shim.js'
+
 # ── 工作纪律段（plugins/prompt-sections.js）—— 不在这层挂，挂在 preset 里 ──────
 # 纪律段与身份一样属于 agent 作用域的事：挂在这层会落到每个 preset 与每个子代理上，
 # 且此处到不了仓库路径（相对 name 解析到 profile 目录）。它现在随 KingCode preset 一起挂

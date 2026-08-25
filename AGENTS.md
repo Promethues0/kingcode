@@ -82,6 +82,20 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
 
 ## 几条刻意的决定（不是漏做）
 
+- **绑 0.0.0.0 是 opt-in 的单独文件，不进 profile 补丁层**：
+  `deploy/harmonyos-pc/bind-all.patch.yml` 只给鸿蒙 PC 的虚拟机用。绑 0.0.0.0 等于把
+  一个能执行任意命令的 agent 暴露给所在网络（上游 dsh-host-webserver 自己写明
+  no TLS / no auth / no origin policy），写进 `profile/cordis.patch.yml` 会让 Mac/Win
+  也跟着对外。顺带记一条上游事实：**`--host 0.0.0.0` 旗标会被 dsh-web-app 的 startup
+  主动拒绝并退 1**，改 bind 只能走覆盖层改 `webserver` 行的 config（id 定向补丁整段
+  替换 config，所以 `port` 那个 `!!js` 表达式必须原样重述，否则 `--port` 永久失效）。
+- **`plugins/insecure-context-shim.js` 默认挂在 Web 形态上**：明文 HTTP 到非 loopback
+  地址时浏览器判定为不安全上下文，`crypto.randomUUID` 不存在，而 dsh 的三个 client
+  bundle 每条 RPC 都用它铸 rpcId——症状是页面 200、UI 完整、没有任何报错横幅、工作区
+  永远转圈。垫片在安全上下文里整段跳过，所以本机与 Mac/Win 零影响。注意它**治不了**
+  另一件事：跨机访问时 `settings.*` / `credentials.*` / `agentPreset.read|copy|remove`
+  / `llm.discoverModels` 被上游钉死在 loopback，一律 403，凭证只能在服务侧落盘。
+
 - **KingCode 的 harness home 是 `~/.kingcode`，不是 dsh 默认的 `~/.dsh`**：dsh 的 home
   是「一台机器一份」的用户数据根（`.agent-presets/`、`settings.yaml`、
   `.credentials.yaml`、`sessions/`、`storages/`），同机另一个 dsh 产品会把它的领域
@@ -94,8 +108,11 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
   同一路径、都让位于显式的 `DSH_HOME`：`bin/kingcode.js`（排在 `loadEnv` 之后，
   `.env` 里写的也算显式）、`profile/setup.sh`、`profile/setup.ps1`、
   `mac/Sources/ServerController.swift`、`win/ServerController.cs`。
-  改路径要五处一起改。凭证从老 home 搬家的代码只有一处（`profile/setup.sh`，
-  刻意排在 dsh/pnpm 守卫之前，否则纯 CLI 用户跑不到那一段，升级后 key 静默失效）。
+  `deploy/harmonyos-pc/` 下另有三处（`install.sh` 的 `KINGCODE_HOME`、
+  `kingcode-web.sh` 的 `DSH_HOME`、`preflight.sh` 的 `KC_HOME`），它们都是
+  `${DSH_HOME:-$HOME/.kingcode}` 形式、同样让位于显式值。**改路径要八处一起改。**
+  凭证从老 home 搬家的代码只有一处（`profile/setup.sh`，刻意排在 dsh/pnpm 守卫之前，
+  否则纯 CLI 用户跑不到那一段，升级后 key 静默失效）。
 - **`typescript` 挂在 devDependencies，但 LSP 在 boot 期就要解析它**：`npm ci --omit=dev`
   之后每一次调用都会死在 boot（除非同时 `KINGCODE_LSP=0`——disabled 的条目不 apply，
   也就不查 server 可执行文件）。当前无 CI、无 Docker、README 记的就是裸 `npm install`，
