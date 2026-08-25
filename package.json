@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node test/test-runner.js && node test/test-progress.js && node test/test-multi-edit.js && node test/test-prompt-sections.js && node test/test-env-context.js && node test/test-guards.js && node test/test-mcp-echo-server.js",
+    "test": "node test/test-runner.js && node test/test-progress.js && node test/test-multi-edit.js && node test/test-prompt-sections.js && node test/test-env-context.js && node test/test-insecure-context-shim.js && node test/test-guards.js && node test/test-command-guard.js && node test/test-mcp-echo-server.js",
     "check:contrast": "node web-brand/tools/check-contrast.js",
     "smoke": "node bin/kingcode.js \"say hi\"",
     "eval": "node eval/run.js"
@@ -62,7 +62,10 @@
     "@deepseek-ai/dsh-web-fetch-http": "0.1.0-rc.6",
     "@deepseek-ai/dsh-web-search-deepseek": "0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "dsh-flakefinder": "^0.2.2",
+    "dsh-funnel": "^0.1.0",
+    "dsh-model-failover": "^0.1.4"
   },
   "devDependencies": {
     "typescript": "7.0.2"

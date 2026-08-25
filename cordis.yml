@@ -45,6 +45,23 @@
     provider: deepseek-official
     model: deepseek-v4-pro
 
+# 模型熔断与降级（第三方 dsh-model-failover）。
+# 装它的理由写在本仓库 README 里：`llm/retry` 的退避是「静默十几分钟」的头号
+# 成因——一个模型开始限流，上游只会一轮轮退避重试，无人值守时就这么烧下去。
+# 这一行让「同一个模型连续失败 N 次」变成「跳到备用模型继续跑」。
+# 备用挑 flash 而不是别家：同一把 DEEPSEEK_API_KEY、同一条路由，降级不引入新依赖。
+- id: model-failover
+  name: 'dsh-model-failover'
+  config:
+    enabled: true
+    fallbacks:
+      - provider: deepseek-official
+        model: deepseek-v4-flash
+    tripCodes:
+      - RATE_LIMIT
+      - SERVER
+      - TIMEOUT
+
 # bash 执行器的托管子进程组
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
@@ -223,6 +240,27 @@
     thresholds: [3, 5, 8]
     exclude: [todo_write]
 
+# 破坏性命令闸门（自己写的，见 plugins/command-guard.js 文件头）。
+# 这棵树到目前为止对 bash 只有一条约束：60s 超时。`rm -rf` / `git reset --hard` /
+# `push --force` 一旦被模型选中就没有回头路，而 KingCode 的常态是**无人值守**跑
+# 任务与 eval——出事时没有人在旁边按 Ctrl-C。
+# 命中即拒绝：让这次工具调用失败并把原因交回给模型（它会换个做法），
+# 而不是挂起等人确认——headless 下等确认等于挂死。
+#
+# 生态里三个现成插件（dsh-barricade / worktree-mgr / dsh-permission-rules）都试过，
+# 在这棵 headless 树上都跑不起来（读未声明的 ctx.approval、工具 schema 是 type:null
+# 污染整个目录、依赖 headless 没有的 commands 服务），所以这一层自己写。
+- id: kingcode-command-guard
+  name: './plugins/command-guard.js'
+
+# 工具输出漏斗（第三方 dsh-funnel）。
+# 与上面的 tool-result-pruner 不重复：那个是**压缩时**按字符数截历史里的旧输出，
+# 这个是**输出刚产生时**按内容裁——保留 error/warning 行与头尾，全文落盘留指针。
+# 两者叠加的效果是：一次失败的构建日志进上下文时就只剩关键行，而不是等它先把
+# 窗口吃掉一大块、再被拦腰截断（截断点常常正好切掉报错那几行）。
+- id: dsh-funnel
+  name: 'dsh-funnel'
+
 # ── 语义导航（seam → stdio provider → 工具）─────────────────────────────────
 # 三行是一组，靠 KINGCODE_LSP=0 整体关掉（loader 支持条目级 disabled，`!!js`
 # 表达式在同一个 with(ctx) 作用域里求值）。关掉后 lsp 工具连同它的提示词段
@@ -278,6 +316,13 @@
   name: '@deepseek-ai/dsh-tool-fs-search'
   config:
     sampleOverCapGlobResults: false
+
+# ── 测试稳定性（第三方，零 @deepseek-ai 依赖）──────────────────────────────
+# flakefinder：把测试重复跑 N 遍，把偶发失败与真回归分开，并维护隔离清单。
+# 直接接 eval/baseline.json 的门禁——现在一条 WARN 到底是回归还是抖动，
+# 只能靠人再跑几遍去猜，而这正是「基线门禁」最容易失去信任的地方。
+- id: flakefinder
+  name: 'dsh-flakefinder'
 
 # ── web 能力（seam → 两个 provider → 工具）────────────────────────────────
 # 网络出口：web_fetch 只收 http/https、拒 URL 内嵌凭证、只跟同源重定向、字节/
