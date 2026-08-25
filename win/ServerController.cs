@@ -172,6 +172,16 @@ internal sealed class ServerController : IDisposable
             // 真实版本，不指定的话跑到哪个 Node 版本会飘。
             WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };
+        // KingCode 自己的 harness home。dsh 默认的 %USERPROFILE%\.dsh 跨产品共用：同机
+        // 另一个 dsh 产品的领域预设装在 $DSH_HOME\.agent-presets 下、默认预设写在
+        // settings.yaml 里，共用会让预设选择器列出别人的预设、新会话开在别人的预设上。
+        // 路径与 profile\setup.ps1、bin/kingcode.js 一致。UseShellExecute=false 时
+        // info.Environment 已预置本进程的环境；用户显式设了的不覆盖。
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DSH_HOME")))
+        {
+            info.Environment["DSH_HOME"] = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".kingcode");
+        }
         // 用 ArgumentList 而不是拼 Arguments 字符串，避免路径含空格/引号时的转义问题
         info.ArgumentList.Add(entry);
         info.ArgumentList.Add("--profile");

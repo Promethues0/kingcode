@@ -144,6 +144,14 @@ final class ServerController {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = path
         env["HOME"] = NSHomeDirectory()
+        // KingCode 自己的 harness home。dsh 默认的 ~/.dsh 跨产品共用：同机另一个 dsh
+        // 产品的领域预设装在 $DSH_HOME/.agent-presets 下、默认预设写在 settings.yaml
+        // 里，共用会让预设选择器列出别人的预设、新会话开在别人的预设上。路径与
+        // profile/setup.sh、bin/kingcode.js 一致；用户显式设了的不覆盖。
+        if env["DSH_HOME"]?.isEmpty ?? true {
+            env["DSH_HOME"] = URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent(".kingcode").path
+        }
         task.environment = env
 
         // 日志落盘，失败时给得出线索

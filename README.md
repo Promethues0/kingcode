@@ -35,7 +35,7 @@ kingcode "跑一下测试并修复失败"
 
 | 文件 | 职责 |
 |---|---|
-| `bin/kingcode.js` | 进程入口：fail-loud → 读 `.env` → `provideCmdline`（参数+退出请求）→ `boot()` 挂载组合树 |
+| `bin/kingcode.js` | 进程入口：fail-loud → 读 `.env` → 兜底 `DSH_HOME`（见「KingCode 自己的 harness home」）→ `provideCmdline`（参数+退出请求）→ `boot()` 挂载组合树 |
 | `cordis.yml` | 组合树：每行一个插件 `{id, name, config}`，这就是 KingCode 的「配方」 |
 | `plugins/startup.js` | 解析任务位置参数与 `--help`，发布 `headlessStartup` 服务 |
 | `plugins/runner.js` | 一次性任务驱动：建 agent → followup → 等静默 → 打印 → 定退出码；外加 stderr 进度流 / 信号收尾 / deadline |
@@ -54,25 +54,36 @@ node bin/kingcode.js "介绍一下这个仓库"
 # 或 npm link 后直接 kingcode "..."
 ```
 
-密钥解析优先级：进程环境变量 > `~/.dsh/.credentials.yaml`（0600）> 调用目录 `.env`。密钥永不写进 cordis.yml。
+密钥解析优先级（CLI 形态，实测）：**shell 环境变量 > 调用目录 `.env` > `~/.kingcode/.credentials.yaml`（0600）**。`.env` 排在凭证文件**之前**——`bin/kingcode.js` 用 `loadEnv`，它走 Node 的 `process.loadEnvFile` 把 `.env` 摊平进 `process.env`（不覆盖已有的 shell 变量），于是凭证服务再去读文件时已经晚了一步。Web 形态用的是另一个加载器（`loadLayeredEnv`，把 `.env` 当低优先级的一层），两种形态因此可能各用各的 key——**别在两处放不一样的值**。密钥永不写进 cordis.yml。
 
 ### 2. Web UI（dsh profile + 品牌层）
 
-官方 web 全家桶（web UI + plan mode + 权限预设 + skills）上叠 KingCode 人格补丁与品牌层。profile 的权威副本在仓库的 `profile/` 下，用脚本装到 `$DSH_HOME`：
+官方 web 全家桶（web UI + plan mode + 权限预设 + skills）上叠 KingCode 人格补丁与品牌层。profile 的权威副本在仓库的 `profile/` 下，用脚本装到 KingCode 自己的 harness home：
 
 ```bash
 ./profile/setup.sh        # Windows 用 .\profile\setup.ps1
-dsh --profile kingcode --port 3081
+DSH_HOME=~/.kingcode dsh --profile kingcode --port 3081
 ```
 
-脚本幂等：重复跑只覆盖补丁层、重装品牌/仓库插件、重装 preset，不动会话与凭证，也不改 `settings.yaml`。
+脚本幂等：重复跑只覆盖补丁层、重装品牌/仓库插件、重装 preset，不动会话与凭证，也不改 `settings.yaml`。Mac/Win 客户端自己会设 `DSH_HOME`，只有命令行起服务时要带上。
 
 **模型姓 KingCode 靠的是 preset，不是 profile 补丁。** 上游把 persona 注册为全局段，而每个内置 preset（standard/code/cordis/minimal）都挂了自己的 `dsh-persona`，在 agent 作用域把全局 persona 遮蔽掉——所以 `profile/cordis.patch.yml` 里的身份句到不了模型。`presets/kingcode/`（setup 脚本装到 `$DSH_HOME/.agent-presets/kingcode/`）是 standard preset 的整份拷贝加三处叠加：KingCode 身份句（与 CLI 逐字一致）、`plugins/prompt-sections.js`（关掉一次性 CLI 的会话契约与工具取舍，换成面向交互式 Web 的取舍段）、`plugins/env-context.js`（`git: false`）。选它的两种方式：
 
-- Web 新会话的预设选择器里选「KingCode」（已开始对话的会话不能换预设，这是上游规则）；
-- 或在 `$DSH_HOME/settings.yaml` 写 `agent-presets: { default: kingcode }`，之后新会话默认就是它。setup 脚本**不替你写**——`~/.dsh` 可能与别的项目共用，默认预设是用户自己的选择。
+- 什么都不做：`profile/cordis.patch.yml` 把 `agent-presets` 的组合层默认值改成了 `kingcode`，新会话默认就是它；
+- 想临时换别的，在 Web 新会话的预设选择器里选（已开始对话的会话不能换预设，这是上游规则）；`$DSH_HOME/settings.yaml` 的 `agent-presets.default` 是**设置层**，写了就盖过组合层，setup 脚本不替你写。
 
 preset 里用 `kingcode/plugins/…` 引用仓库插件，靠的是脚本把仓库本身 `dsh plugin add -w` 成 profile 里的包 `kingcode`：插件在仓库原位加载，与 CLI 同一份。升级 dsh 后对照 `<dsh>/config/agent-presets/standard/agent.cordis.yml` 同步工具面行。
+
+### KingCode 自己的 harness home
+
+**四种形态都跑在 `~/.kingcode`，不是 dsh 默认的 `~/.dsh`。** dsh 的 home 是「一个机器一份」的用户数据根——`.agent-presets/`（预设）、`settings.yaml`（默认预设、默认模型、主题）、`.credentials.yaml`、`sessions/`、`storages/` 全在里面。同一台机器上另一个 dsh 产品会把它的领域预设装进 `.agent-presets/`、把它的默认预设写进 `settings.yaml`，于是 KingCode 的预设选择器里列着别人的专业预设，新会话还直接开在上面——**KingCode 是纯编程智能体，专业预设里不该有别的产品的领域内容**。
+
+换 home 是唯一彻底的隔离，原因在上游的两条硬规则：
+
+- dsh 启动器在所有补丁层之上再压一个 `agent-presets` 覆盖层，把 `roots` 强行写成「随 dsh 发行的那一份」——profile 里配 `roots` 会被整段丢掉。能留给部署方的只有 `default` 与 `includeUserRoot`，而**用户根固定是 `<dshHome>/.agent-presets`，只跟着 `DSH_HOME` 走**。
+- `settings.yaml` 的 `agent-presets.default` 属于设置层，优先级高于任何组合层配置。共用 home 时，别人写的默认预设一定盖过 KingCode 的。
+
+`DSH_HOME` 的解析优先级是「显式值 > 环境变量 > `~/.dsh`」，所以每个入口各自兜底同一个路径、都让位于显式设置：`bin/kingcode.js`（在读 `.env` 之后，`.env` 里写的也算显式）、`profile/setup.sh` / `setup.ps1`、`mac/Sources/ServerController.swift`、`win/ServerController.cs`。setup 脚本还会在新 home 没有凭证、老的 `~/.dsh/.credentials.yaml` 存在时复制一份过去（只在目标不存在时，绝不覆盖，老文件不动）——换 home 不该让人重填 API key。老 home 里的历史会话不会跟着搬：要翻旧会话，`DSH_HOME=~/.dsh dsh --profile kingcode --port 3081`。
 
 ## 语义导航（`lsp` 工具）
 
@@ -160,7 +171,7 @@ cp -R mac/build/KingCode.app /Applications/   # 想从聚焦搜索启动就装�
 # 1. 前置：Node.js、dsh、pnpm
 npm install -g @deepseek-ai/dsh pnpm
 
-# 2. 初始化 profile（写 %USERPROFILE%\.dsh\profiles\kingcode 并装品牌层）
+# 2. 初始化 profile（写 %USERPROFILE%\.kingcode\profiles\kingcode 并装品牌层）
 .\profile\setup.ps1
 
 # 3. 构建（需 .NET 8 SDK）
@@ -210,7 +221,7 @@ cd win; .\build.ps1                    # 框架依赖，需目标机装 .NET 8 �
 
 ### 上游对 Windows 的支持程度（客观情况）
 
-dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pwsh-sandbox`/`tool-pwsh` 两组行按 `process.platform` 互斥启用），`$DSH_HOME` 解析到 `%USERPROFILE%\.dsh`，模块兜底目录用 junction 而非 symlink（所以不需要管理员权限或开发者模式）。
+dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pwsh-sandbox`/`tool-pwsh` 两组行按 `process.platform` 互斥启用），dsh 的 `$DSH_HOME` 默认解析到 `%USERPROFILE%\.dsh`（KingCode 自己兜底成 `%USERPROFILE%\.kingcode`，见上），模块兜底目录用 junction 而非 symlink（所以不需要管理员权限或开发者模式）。
 
 但要知道：**上游 README 从未提及 Windows**，也没有平台支持矩阵。他们的 CI 有 Windows 通道，可其中真正跑 dsh 二进制端到端冒烟的那条被显式标成 `allowFailure`，**不阻塞合并**。也就是说 Windows 是「能跑、有人在意，但不是被保证的路径」。
 
@@ -280,7 +291,7 @@ node eval/run.js --update-baseline    # 把本次结果定为新基线（有 har
 
 ## 上游生态须知（踩过的坑）
 
-- **CLI 的默认模型会被 Web UI 的选择覆盖**：`agent-default-model` 行的 config 属于组合层，而用户级 `$DSH_HOME/settings.yaml` 的同名节优先级更高——你在 Web UI 里选了 Claude，CLI 也会跟着用。所以 CLI 的 `cordis.yml` **必须挂 `llm-pi-ai` 多厂商适配器**，否则会报 `NO_ADAPTER: no adapter registered for provider "anthropic"`。这是两个形态共享一份用户设置的必然结果，不是 bug。
+- **CLI 的默认模型会被 Web UI 的选择覆盖**：`agent-default-model` 行的 config 属于组合层，而用户级 `$DSH_HOME/settings.yaml` 的同名节优先级更高——你在 Web UI 里选了 Claude，CLI 也会跟着用。所以 CLI 的 `cordis.yml` **必须挂 `llm-pi-ai` 多厂商适配器**，否则会报 `NO_ADAPTER: no adapter registered for provider "anthropic"`。这是四个形态共享一份用户设置（`~/.kingcode/settings.yaml`）的必然结果，不是 bug；换成 KingCode 自己的 home 之后，这份设置至少只被 KingCode 自己写。
 
 - **npm dist-tag**：`@deepseek-ai/dsh-*` 库包的 `latest` 标签滞后，**装 `@next`** 才是与 CLI 对齐的 `0.1.0-rc.6` 版本线
 - **Loader 插件必须具名导出**（`export const name/inject` + `export function apply`），default export 会静默丢 `inject`

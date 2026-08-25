@@ -40,6 +40,22 @@
     provider: deepseek-official
     model: deepseek-v4-pro
 
+# ── 默认预设 ───────────────────────────────────────────────────────────────
+# 新会话默认起在 KingCode 自己的预设上（组合层默认值是上游的 `standard`）。
+#
+# 这一行为什么不够、还得给 KingCode 一个自己的 DSH_HOME：
+# ① dsh 启动器（profile-boot）在所有补丁层之上再压一个 agent-presets 覆盖层，
+#    把 `roots` 强行写成「随 dsh 发行的那一份」——在这里配 roots 会被整段丢掉，
+#    能留下的只有 default 与 includeUserRoot；
+# ② 用户根固定是 <dshHome>/.agent-presets，只跟着 DSH_HOME 走。共用 ~/.dsh 时，
+#    同机另一个 dsh 产品的领域预设就摆在那儿，会一并出现在 KingCode 的预设选择器里；
+# ③ $DSH_HOME/settings.yaml 的 agent-presets.default 属于**设置层**，优先级高于
+#    本行，共用 home 时别人写的默认预设会盖掉这里。
+# 所以 KingCode 走自己的 home（~/.kingcode，见 profile/setup.sh 与 mac/win 两端客户端）。
+- id: agent-presets
+  config:
+    default: kingcode
+
 # ── 品牌层 ─────────────────────────────────────────────────────────────────
 # 节点半侧改 <title>/favicon/manifest，浏览器半侧叠配色（client-modules 扫到本包的
 # dsh.client 声明后自动 serve /plugins/<id>/client.js）。包名能解析，是因为 setup.sh 用

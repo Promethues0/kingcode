@@ -2,7 +2,7 @@
 
 回答一个仓库其他测试都不回答的问题：**给 agent 一个任务，它完成得怎么样。**
 固定任务集 + 零 LLM 自动判分 + 基线对比。真调模型（组合树钉死便宜的
-deepseek-v4-flash），凭证走 `~/.dsh/.credentials.yaml`，与 CLI 正常跑一致。
+deepseek-v4-flash），凭证走 `~/.kingcode/.credentials.yaml`（KingCode 自己的 harness home），与 CLI 正常跑一致。
 
 ## 怎么跑
 

@@ -82,6 +82,20 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
 
 ## 几条刻意的决定（不是漏做）
 
+- **KingCode 的 harness home 是 `~/.kingcode`，不是 dsh 默认的 `~/.dsh`**：dsh 的 home
+  是「一台机器一份」的用户数据根（`.agent-presets/`、`settings.yaml`、
+  `.credentials.yaml`、`sessions/`、`storages/`），同机另一个 dsh 产品会把它的领域
+  预设装进 `.agent-presets/`、把默认预设写进 `settings.yaml`，共用就等于 KingCode 的
+  预设选择器里列着别人的专业预设、新会话直接开在上面。**换 home 是唯一彻底的隔离**：
+  dsh 启动器在所有补丁层之上再压一个 `agent-presets` 覆盖层，把 `roots` 强行写成随包
+  发行的那一份（profile 里配 `roots` 会被整段丢掉），能留给部署方的只有 `default` 与
+  `includeUserRoot`，而用户根固定是 `<dshHome>/.agent-presets`；`settings.yaml` 的
+  `agent-presets.default` 又属于设置层，优先级高于任何组合层配置。五处入口各自兜底
+  同一路径、都让位于显式的 `DSH_HOME`：`bin/kingcode.js`（排在 `loadEnv` 之后，
+  `.env` 里写的也算显式）、`profile/setup.sh`、`profile/setup.ps1`、
+  `mac/Sources/ServerController.swift`、`win/ServerController.cs`。
+  改路径要五处一起改。凭证从老 home 搬家的代码只有一处（`profile/setup.sh`，
+  刻意排在 dsh/pnpm 守卫之前，否则纯 CLI 用户跑不到那一段，升级后 key 静默失效）。
 - **`typescript` 挂在 devDependencies，但 LSP 在 boot 期就要解析它**：`npm ci --omit=dev`
   之后每一次调用都会死在 boot（除非同时 `KINGCODE_LSP=0`——disabled 的条目不 apply，
   也就不查 server 可执行文件）。当前无 CI、无 Docker、README 记的就是裸 `npm install`，
