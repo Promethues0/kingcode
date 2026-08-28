@@ -1,0 +1,45 @@
+{
+  "app": {
+    // 签名材料是机器本地的（~/.ohos/config 下的 p12/cer/p7b + 本机加密的口令），
+    // 不入库。第一次构建前在 DevEco 里登录华为账号，Project Structure → Signing
+    // Configs 勾 Automatically generate signature，DevEco 会把生成的配置写回这里。
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.0.1(21)",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+# DevEco / hvigor 本地产物
+/entry/build/
+/build/
+/oh_modules/
+/entry/oh_modules/
+/.hvigor/
+/.idea/
+/local.properties
+# 自动签名写回的本地签名配置别提交（材料在 ~/.ohos，机器绑定）

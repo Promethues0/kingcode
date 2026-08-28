@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "KingCode 客户端壳（引擎在融合开发引擎虚拟机里）"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "KingCode"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "KingCode"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "app": {
+    // 真机安装前在 DevEco 里登录华为账号→File→Project Structure→Signing Configs
+    // 勾 Automatically generate signature：自动签名会为这个 bundleName 生成
+    // 调试证书与 profile（含你设备的 UDID）。本仓库不携带任何签名材料。
+    "bundleName": "com.kingcode.client",
+    "vendor": "kingcode",
+    "versionCode": 1000000,
+    "versionName": "0.1.0",
+    "icon": "$media:layered_image",
+    "label": "$string:app_name"
+  }
+}

@@ -225,6 +225,20 @@ dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pws
 
 但要知道：**上游 README 从未提及 Windows**，也没有平台支持矩阵。他们的 CI 有 Windows 通道，可其中真正跑 dsh 二进制端到端冒烟的那条被显式标成 `allowFailure`，**不阻塞合并**。也就是说 Windows 是「能跑、有人在意，但不是被保证的路径」。
 
+## 鸿蒙客户端 `harmony/`
+
+ArkTS + ArkWeb 壳，角色与 `mac/`、`win/` 相同：桌面图标、独立窗口、记住引擎地址。
+**不内置引擎**（HarmonyOS 应用沙箱里没有 Node、起不了子进程），引擎照旧跑在融合
+开发引擎的虚拟机里；与 mac/win 壳的关键差异是它连的不是 127.0.0.1 而是**虚拟机的
+IP**——IP 每次开机可能变，所以壳把地址做成可改、可记、连不上时给出「去虚拟机跑
+`kingcode-web.sh url` 重问」的指引。已在 2in1 模拟器（HarmonyOS 6.0.2）上装载、
+连上引擎、加载出工作区验证过。
+
+构建：DevEco Studio 打开 `harmony/`，登录华为账号 → Project Structure → Signing
+Configs 勾自动签名（仓库不携带签名材料，`signingConfigs` 是空的；调试证书绑定
+bundleName 与设备 UDID，只能现场生成），连上真机点 Run。命令行构建见
+`deploy/harmonyos-pc/README.md`。
+
 ## 鸿蒙 PC（融合开发引擎）
 
 鸿蒙电脑上装的是**引擎本体，不是瘦客户端**：华为的「融合开发引擎」提供一键 openEuler（Linux 6.6、aarch64）环境，有终端有包管理，所以 bash / git / tsc / LSP / 子代理这套工具面一件不少，CLI 与 Web 两种形态都在虚拟机里跑，Web 由**鸿蒙宿主侧的浏览器**访问。
