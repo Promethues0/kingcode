@@ -39,7 +39,9 @@ check(css.length > 1200, 'BRAND_CSS 长度合理（截断后会骤减）', `${cs
 
 // 四类品牌覆盖，一条都不能少——每条都对应一处上游硬编码的品牌图形
 const REQUIRED = [
-  [/svg\[viewBox="0 0 182 24"\]/, '侧栏 wordmark 遮罩（deepseek + HARNESS 字标）'],
+  // 不再断言具体 viewBox：新版 BrandWordmark 的 includeMark 开关会让宽高比在
+  // 182:24 与 156:24 之间切换，钉死数值的选择器会再次落空（真机上复发过一次）。
+  [/button\[class\*="_brand"\] svg \{ display: none/, '侧栏 wordmark 遮罩（deepseek + HARNESS 字标）'],
   [/_railFish/, '收起态的鲸鱼单标'],
   [/_fishHitbox/, '首页鲸鱼'],
   [/_previewBadge/, '首页「预览版」徽章'],

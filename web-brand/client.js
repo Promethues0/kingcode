@@ -255,16 +255,22 @@ body[data-ds-dark-theme] ${selector} {
 		 * 不写死 CSS Modules 的完整哈希类名——上游重建会换前缀、不换后缀。
 		 * 匹配不到时整段是无害的空规则，UI 退回上游原样，不会白屏。
 		 */
+		// ⚠️ 这是模板字符串：**注释里一个反引号都不能出现**。写了就会把模板从中间
+		// 截断，而 `node --check` 照样通过（截断后仍是合法 JS）、check:contrast 也通过，
+		// 于是残缺的 CSS 一路发到真机上，表现为上游品牌整个露出来且不报任何错。
+		// 这个坑我踩过两次。test/test-web-brand.js 会断言反引号成对与规则完整，
+		// 改这段之后务必 npm test。
 		const BRAND_CSS = `
 /* 侧栏 wordmark：藏掉 deepseek HARNESS 原标，换 K 字标 + 字样。
    **用后代选择器而不是直接子元素**：上游把 BrandWordmark 直接放在 button 下，但不同
    构建里外面可能多包一层（真机实测：同为 0.1.0-rc.6，全新 npm 安装解析到的子依赖
    更新，前端重打包后「button > svg」落空，鲸鱼漏了出来，而同一段 CSS 里的
    ::before/::after 照常生效——症状是「K 🐋deepseek KingCode」并排）。
-   viewBox 是这枚字标的稳定身份（182:24 的比例写死在组件里），比 DOM 层级可靠。 */
-button[class*="_brand"] svg[viewBox="0 0 182 24"] { display: none !important; }
-/* 兜底：万一它哪天不在 _brand 按钮里了，整页范围内这个 viewBox 也只有它 */
-svg[viewBox="0 0 182 24"] { display: none !important; }
+   也**不锚 viewBox**：新版 BrandWordmark 加了 includeMark 开关，宽高比在
+   182:24（带鲸鱼）与 156:24（不带）之间切换，viewBox 跟着变——真机上侧栏用的正是
+   156 那档，钉死 182 的属性选择器于是落空（这是同一个坑的第二次复发）。
+   _brand 按钮里本来就只有这一枚 svg，藏掉它最省事，也不随上游改图而失效。 */
+button[class*="_brand"] svg { display: none !important; }
 button[class*="_brand"] {
 	display: inline-flex !important;
 	align-items: center;
