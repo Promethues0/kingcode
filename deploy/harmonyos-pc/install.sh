@@ -75,15 +75,18 @@ case "$REPO_DIR" in
   /mnt/linux_share/*) die "仓库不能放共享目录：属主是 root、符号链接与可执行位都不可靠，而 profile 里挂的是指向仓库的 pnpm link" ;;
 esac
 
-# ── 1. 系统包（node-pty 要现场编译）────────────────────────────────────────
+# ── 1. 系统包（C++ 工具链只为第 7 步的全局 dsh 存在）───────────────────────
 step '1/8 系统包'
 if [ "$SKIP_SYSTEM" -eq 1 ]; then
   info '按要求跳过'
 else
   have dnf || die '找不到 dnf——这不像融合开发引擎的 openEuler。确认环境，或加 --skip-system 自行准备工具链'
-  # 为什么必须有 C++ 工具链：node-pty@1.1.0 的发布包里只有 darwin/win32 预编译，
-  # linux-arm64 上 install 脚本必然回落到 node-gyp rebuild。它是 dsh-subprocess-local
-  # 的**非 optional** 依赖，编译失败会让整条 npm ci 以退出码 1 中止。
+  # 为什么还要 C++ 工具链：仓库自己的 npm ci 已经**不编译**了——package.json 用
+  # overrides 把 node-pty 钉到 1.2.0-beta.15，那版自带 prebuilds/linux-arm64/pty.node
+  # （上游 dsh-subprocess-local 从 0.1.0-rc.8 起也精确钉这版）。但第 7 步
+  # `npm i -g @deepseek-ai/dsh@$DSH_VERSION` 装的是上游自己的树，不吃本仓库的
+  # overrides：它里面的 node-pty 仍按 ^1.1.0 解析到 1.1.0（semver 区间撞不到预发布），
+  # 那版没有 linux 预编译，必然 node-gyp rebuild。等 Web 形态升到 rc.8+ 才能删这条。
   info '装 git curl tar xz make gcc-c++ python3 glibc-devel ca-certificates（需要 sudo）'
   sudo dnf install -y git curl tar xz make gcc-c++ python3 glibc-devel ca-certificates \
     || die 'dnf 装包失败。先在 preflight 报告里确认这些包在源里存在、以及 sudo 可用'
@@ -137,8 +140,9 @@ mkdir -p "$NPM_PREFIX"
 # 也没人告诉过用户。npm_config_* 只作用于本次进程，效果一样、零污染。
 export npm_config_prefix="$NPM_PREFIX"
 [ -n "$REGISTRY" ] && export npm_config_registry="$REGISTRY"
-# node-gyp 编译 node-pty 时按 disturl 去下 node headers（默认 nodejs.org/dist）。
-# 不跟着 registry 走，所以要单独给。
+# 第 7 步全局装 dsh 时 node-gyp 编译 node-pty@1.1.0，按 disturl 去下 node headers
+# （默认 nodejs.org/dist）。不跟着 registry 走，所以要单独给。
+# （仓库自己的 npm ci 走预编译，不碰 disturl。）
 [ -n "${KINGCODE_DISTURL:-}" ] && export npm_config_disturl="$KINGCODE_DISTURL"
 export PATH="$NPM_PREFIX/bin:$PATH"
 info "prefix=$NPM_PREFIX（仅本次进程，不写 ~/.npmrc）  npm $(npm --version)  registry=$(npm config get registry)"
@@ -195,12 +199,12 @@ if [ -f "$REPO_DIR/.env" ]; then
 fi
 
 # ── 6. 依赖 ────────────────────────────────────────────────────────────────
-step '6/8 npm ci（第一次会现场编译 node-pty，慢一点是正常的）'
+step '6/8 npm ci（node-pty 走 linux-arm64 预编译，不再现场编译）'
 cd "$REPO_DIR"
 # 刻意不加 --omit=dev / --omit=optional：
 #   --omit=dev      会抽掉 LSP 的 tsc 平台二进制（cordis.yml 按路径直接拼它，boot 期硬失败）
 #   --omit=optional 会抽掉 ripgrep 与 koffi 的 linux 二进制
-npm ci || die 'npm ci 失败。最常见是 node-pty 编译不过：确认 gcc-c++ / make / python3 / glibc-devel 都在，且 node-gyp 能下到 node headers（它默认打 nodejs.org）'
+npm ci || die 'npm ci 失败。node-pty 已钉 1.2.0-beta.15（带 linux-arm64 预编译），不该死在编译上——先查网络/registry；若日志里真在跑 node-gyp，说明这份 lock 没带 overrides 那次提交，回开发机 git pull 再拷'
 info "依赖装好（$(find node_modules -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ') 个顶层条目）"
 if [ -d node_modules/@typescript/typescript-linux-arm64 ]; then
   info 'LSP 的 linux-arm64 tsc 到位'

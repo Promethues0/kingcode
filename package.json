@@ -67,6 +67,9 @@
     "dsh-funnel": "^0.1.0",
     "dsh-model-failover": "^0.1.4"
   },
+  "overrides": {
+    "node-pty": "1.2.0-beta.15"
+  },
   "devDependencies": {
     "typescript": "7.0.2"
   }

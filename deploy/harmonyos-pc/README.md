@@ -73,6 +73,10 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
 `200` = 栅栏放行（那么转圈就是③，检查垫片有没有挂上）；`403` = 栅栏拦了（是②）；
 连不上 = ①。`./kingcode-web.sh status` 已经把这条探针内建了。
 
+dsh 升级、垫片或预设改动之后，用 `./rehearse-emulator.sh` 在开发机上十分钟复验这半边：
+它把上面这些探针加上「DevEco 2in1 模拟器真开页面 → 截屏取证 → lsof 查 WS 下行」串成
+一条命令，机器验不了的只剩肉眼看一眼截图里工作区有没有数据。
+
 **垫片治不了的两样**：
 
 1. 跨机访问时 `settings.*`、`credentials.*`、`agentPreset.read|copy|remove`、
@@ -98,9 +102,18 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
   cordis.yml 标注「必须挂」的行。选 24 是因为 cordis 的插件加载器按 Node major 分叉，
   而开发机上真正跑过的只有 24 那条分支。
   **openEuler 源里的 nodejs 是 20.x，`dnf install nodejs` 这条路是堵死的。**
-- **必须装 C++ 工具链**。`node-pty@1.1.0` 的发布包里只有 darwin/win32 预编译，
-  linux-arm64 必然回落到 `node-gyp rebuild`；它是 `dsh-subprocess-local` 的
-  **非 optional** 依赖，编译失败会让整条 `npm ci` 退 1。全局 `dsh` 那份也吃它。
+- **C++ 工具链还得装，但服务对象只剩全局 `dsh`**。仓库自己的 `npm ci` 已经不编译：
+  `package.json` 用 `overrides` 把 `node-pty` 钉到 `1.2.0-beta.15`，那版自带
+  `prebuilds/linux-arm64/pty.node`（真 aarch64 ELF），install 脚本探到预编译目录直接
+  退 0，node-gyp 不跑；`module.exports` 键集合与 1.1.0 逐字相同
+  （createTerminal/fork/native/open/spawn），上游 `dsh-subprocess-local@0.1.0-rc.8`
+  起也精确钉这一版。工具链现在只为第 7 步的**全局 `dsh@0.1.0-rc.6`** 存在：
+  `npm i -g` 不吃本仓库的 overrides，它树里的 `node-pty` 仍按 `^1.1.0` 解析到
+  1.1.0（semver 区间撞不到预发布版），那版无 linux 预编译，必然现场编译。也没有
+  绕的路：其 `scripts/prebuild.js` 只认包内 `prebuilds/<platform>-<arch>` 目录、
+  没有任何指向外部预编译的环境变量（唯一认的 `npm_config_build_from_source` 方向
+  相反），而 `--ignore-scripts` 会连 `@vscode/ripgrep` 的 postinstall 下载一起跳过。
+  上游 Web 形态升到 rc.8+ 之日，这条前置可整个删除。
 - **`npm ci` 不能加 `--omit=dev`，也不能加 `--omit=optional`**。前者会抽掉 LSP 的
   `@typescript/typescript-linux-arm64`（cordis.yml 按路径直接拼这个二进制，缺了是
   boot 期硬失败）；后者会抽掉 ripgrep 与 koffi 的 linux 二进制。
@@ -144,36 +157,123 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
   openEuler，仅主用户。这些是官方 FAQ 写明的。
 - **虚拟机 IP 每次开机可能变**，官方没有端口转发功能。别把地址存成书签，
   用 `./kingcode-web.sh url` 重新问；IP 变了之后**要重启服务**（信任名单是启动那一刻
-  采的快照）。
+  采的快照）。`status` 与 `url` 会把名单里的 IP 和本机现在的 IP 对比，漂了会红字
+  告警——但只在有 `ip`/`hostname -I` 可用的机器上（openEuler 有）。
 - 开机自启在这个环境里没有可靠方案（没有 systemd，`chsh` 也被禁）。当前做法是
   `install.sh` 把 PATH 快照接进 `~/.bashrc`，你开终端后手动 `kingcode-web.sh start`。
   如果 `crond` 可用，`@reboot` 是可以试的一条路——**没验证过**。
-- 会话日志（`$DSH_HOME/sessions`）与 spill 文件**没有任何东西会自动清**，没有
-  systemd-tmpfiles 兜底，长期用要自己看着点。
+- 会话日志（`$DSH_HOME/sessions`）**不会自动清**，但 `./kingcode-web.sh prune` 能清：
+  删掉 N 天没动的会话目录（默认 30，`KINGCODE_PRUNE_DAYS` 可调），默认干跑列清单、
+  `--yes` 才真删、服务在跑时拒绝执行。spill 文件（系统 tmp 里的 `dsh-spill-*`）prune
+  只报数量不删——同机其它 dsh 产品的 spill 长得一模一样，删错会弄断人家的活会话。
 - 网络差时最坏会静默约 30 分钟（重试 5 次 × 5 分钟 stream idle 超时）。CLI 形态用
-  `KINGCODE_DEADLINE_MS` 兜住，Web 形态在 `settings.yaml` 里调 `streamIdleTimeoutMs`。
+  `KINGCODE_DEADLINE_MS` 兜住；两种形态都能用 `~/.kingcode/settings.yaml` 把静默压短，
+  模板与算术见下面「网络差时把静默压短」。
 
-## 待你在机器上验的（我在开发机上验不了）
+## 网络差时把静默压短（可选）
 
-1. **宿主能不能访问虚拟机端口**——`preflight.sh` 第六节给了验证步骤（用真正要用的
-   端口、在空目录里起 http.server）。这条决定 Web 形态成不成立。
-2. 默认分配的 CPU / 内存 / 磁盘（官方与全网都没有数据）——`preflight.sh` 第一节会量。
-3. `@reboot` 自启到底行不行：`preflight.sh` 会报 `crontab` 在不在、PID 1 是谁，
+上面「最坏 30 分钟」的构成（对着 dsh 0.1.0-rc.6 的 schema 与包文档逐项核过）：
+
+- 适配器给**每一次读**的静默上限是 `streamIdleTimeoutMs`，默认 300000（5 分钟）。
+  SSE 的 keep-alive 注释算传输活动、会重置计时，所以掐掉的是彻底断死的连接
+  （`LlmError('TIMEOUT')`），不是活着但慢的流。
+- 断掉之后由 `dsh-llm-retry` 按路由的 `retryPolicy` 重试：normal 模式默认
+  `maxRetries: 2`——初次 + 2 次重试，单路由最坏 3 × 5 分钟 ≈ 15 分钟全程无声。
+  CLI 形态还挂着 model-failover（pro 熔断后切 flash），两段路由加起来 ≈ 30 分钟。
+- `dsh-llm-deepseek` 把自己的整份 Config 注册成 settings 的 `llm-deepseek:` 命名空间：
+  `~/.kingcode/settings.yaml` 里的这一节**免重启热生效**，只覆盖写了的字段，
+  Web 与 CLI 吃同一份（CLI 的 harness home 同样默认 `~/.kingcode`）。
+
+虚拟机上建议写进 `~/.kingcode/settings.yaml`（这套部署装完默认没有这个文件；
+新建即可，dsh 会保留既有文件，Web 的 Models 页以后写的也是同一份）：
+
+```yaml
+llm-deepseek:
+  streamIdleTimeoutMs: 120000   # 2 分钟判死断流（默认 5 分钟）
+  retryPolicy:
+    mode: normal                # 别改 always：它对认证/配额类永久错误也无限重试
+    maxRetries: 2               # 即默认值，写出来是让人知道有这颗旋钮
+    backoff:
+      initialDelayMs: 1000
+      maxDelayMs: 15000
+      jitterRatio: 0.2
+```
+
+效果：单路由最坏静默从 ≈15 分钟压到 ≈6 分钟。**不要**把 `streamIdleTimeoutMs`
+调得太狠：reasoningEffort=high 的长思考期间如果上游 keep-alive 稀疏，过短的值会把
+活流误杀成 TIMEOUT——2 分钟已经是保守值，而 keep-alive 的真实节奏没人在弱网上实测过。
+真正的硬兜底仍是 CLI 的 `KINGCODE_DEADLINE_MS`；Web 会话没有对应的墙钟上限。
+
+## 模拟器彩排（2026-08-27）
+
+用 DevEco Studio 6.0.2 的 2in1 模拟器（MateBook Pro，HarmonyOS 6.0.2，API 22）里的
+**华为浏览器**，访问跑在 Mac 上的这套 Web 服务（`kingcode-web.sh` +
+`bind-all.patch.yml`，明文 HTTP + LAN IP——和真机一样落在不安全上下文里）。
+浏览器半边六项全部通过：
+
+1. 页面 200，UI 完整；
+2. 品牌是 KingCode（web-brand 层在 ArkWeb 里生效）；
+3. `agentPreset.list` 探针 200（信任栅栏放行）；
+4. **工作区数据正常加载**——这条就是垫片在真 ArkWeb 里生效的证据：不安全上下文下
+   没有垫片，这里必然转圈；
+5. WebSocket 下行保持 ESTABLISHED；
+6. 预设选择器默认 KingCode。
+
+这验掉的是链路里「浏览器侧」的全部未知：ArkWeb 的行为是不是标准、垫片在真华为
+浏览器里挂不挂得上。**没验掉的**：服务侧当时跑在 Mac 上，不在 openEuler 虚拟机里——
+所以「真机上宿主能否访问虚拟机端口」和 openEuler 侧的安装链路仍然只能在真机上验。
+模拟器结果不等于真机结果，别把这节当成后者。复验步骤见文末附录，
+一条命令版是 `./rehearse-emulator.sh`。
+
+## 真机实测（2026-08-28，HUAWEI MNTXM-32A / HarmonyOS 7.0.0.102 / API 26）
+
+**宿主能访问虚拟机端口——这条通了**，整套方案最后一个未知数就此消除。证据链：
+
+- 虚拟机拿到的是 StratoVirt NAT 私网地址 `172.16.105.2/24`（eth0），网关即宿主
+  `172.16.105.1`；**不在 LAN 上**，所以别指望局域网里的别的机器能直连它。
+- 宿主 `ping 172.16.105.2` → 2 发 2 收 0% 丢包（L3 通）。
+- 虚拟机里起 `python3 -m http.server 3081 --bind 0.0.0.0`，**鸿蒙浏览器打开
+  `http://172.16.105.2:3081` 正常渲染**；虚拟机侧访问日志同时记下
+  `172.16.105.1 - - "GET / HTTP/1.1" 200`（L4/L7 通，且请求确实来自宿主网关）。
+- 反向也通：虚拟机 `curl` 同网段另一台机器上的 KingCode 服务 → `HTTP/1.1 200 OK`
+  （NAT 出网正常，装依赖、调模型都没问题）。
+
+**实测规格**（官方与全网都查不到的那几项）：融合开发引擎控制台显示
+**内存 4G / CPU 4 核 / 磁盘 512G / 网络 NAT**；虚拟机内 `free -m` 报 total 3912、
+available 3701，`df -h /` 报 503G 可用（已用 745M）。对照 `preflight.sh` 的
+`NEED_DISK_MB=2048`：**磁盘绰绰有余**；内存 4G 也够（引擎实测 RSS 48MB），
+但仍建议小内存机加 `KINGCODE_NODE_OPTS=--max-old-space-size=768` 兜住病理会话。
+
+**环境事实**：`uname -srm` → `Linux 6.6.0 aarch64`（与文档一致）；镜像包名
+`com.huawei.developer.rgm.images_openeuler22.03`（openEuler 22.03）；虚拟机由
+「融合开发引擎」应用的系统控制台点「开启」启动，起来后是鸿蒙桌面上的一个终端窗口。
+
+**踩到的坑**：终端里的中文输入法会把命令吃掉（`uname -srm` 变成「U那么-上热门」），
+**按一下 Shift 切英文**再敲。用 hdc 远程驱动时尤其要注意这点。
+
+## 待你在机器上验的
+
+1. `@reboot` 自启到底行不行：`preflight.sh` 会报 `crontab` 在不在、PID 1 是谁，
    但「开机时真的会拉起来吗」只能你重启一次试。
-4. openEuler 的具体小版本与源里各包的实际版本（`preflight.sh` 第一、四节会打出来）。
+2. openEuler 侧的完整安装链路（dnf 装工具链、Node tarball、`npm ci`、
+   全局 dsh 的 node-pty 现场编译）——preflight/install 两个脚本都还没在真机上跑过。
 
-**整份交付里没有一行在鸿蒙 PC 上跑过。** 我能验的都在开发机（macOS）上验了：
-三个脚本 shellcheck 干净、`kingcode-web.sh` 的 start/stop/restart/并发start/看门狗重启/
-端口被占时不谎报就绪都实跑过、`install.sh` 用打桩的方式把八步逻辑走通过、
-垫片有 30 条断言的无头测试并在真起的服务上确认注入生效、绑 0.0.0.0 + 跨机 /api 200
-的整条链路在本机彩排过。**openEuler 特有的部分（dnf、aarch64、node-pty 现场编译、
-宿主可达性）全部未验。**
+**验证状态**：浏览器半边已在 HarmonyOS 6.0.2 模拟器的真 ArkWeb 里验过（见上面
+「模拟器彩排」）。开发机（macOS）上验过的：脚本全部 shellcheck 干净、
+`kingcode-web.sh` 的 start/stop/restart/并发start/看门狗重启/端口被占时不谎报就绪
+都实跑过、`install.sh` 用打桩的方式把八步逻辑走通过、垫片有 30+ 条断言的无头测试
+并在真起的服务上确认注入生效。node-pty 免编译那条：1.2.0-beta.15 的 linux-arm64
+预编译拆包验过 ELF 头（aarch64）、darwin-arm64 那份在开发机上真 spawn 过 pty、
+override 后 `npm ci` + 全部无头测试 + 无钥烟测都过。**仍未在鸿蒙 PC 上跑过的：
+openEuler 侧安装链路（dnf、aarch64、全局 dsh 装包时的 node-pty 现场编译、
+linux-arm64 预编译在真机上的加载）与真机宿主→虚拟机可达性。**
 
 ## 排障速查
 
 | 症状 | 大概率是 |
 |---|---|
-| `npm ci` 卡在 node-pty | 缺 gcc-c++/make/python3/glibc-devel，或 node-gyp 下不到 node headers |
+| 全局装 dsh 时卡在 node-pty | 缺 gcc-c++/make/python3/glibc-devel，或 node-gyp 下不到 node headers |
+| `npm ci` 竟然在编译 node-pty | 这份 lock 没带 overrides 那次提交（node-pty 应是 1.2.0-beta.15，带 linux-arm64 预编译） |
 | boot 报找不到 tsc | 用了 `--omit=dev`，或从别的机器拷了 node_modules |
 | boot 以退出码 1 拒启、提凭证权限 | `.credentials.yaml` 不是 0600 |
 | 页面能开、工作区一直转圈 | `/api` 403（信任栅栏）或 randomUUID（垫片没挂上）——用上面那条 curl 分辨 |
@@ -181,4 +281,36 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
 | 服务关掉终端就没了 | 没走 `kingcode-web.sh start`（少了 nohup，SIGHUP 直接杀死 dsh） |
 | 服务起得来，但预设选择器里没有 KingCode、也没有默认项 | `$DSH_HOME/.agent-presets/kingcode` 不在（没跑 `profile/setup.sh`）。这是个**不响的失败**：服务照常起、品牌照常是 KingCode。`kingcode-web.sh start` 已经会在启动前拦住它 |
 | CLI 报 MISSING_CREDENTIAL，但你记得填过 key | key 还在老的 `~/.dsh/.credentials.yaml` 里。跑一次 `profile/setup.sh` 会搬过来（它不需要 dsh/pnpm 也能走到搬家那一步） |
-| 模型请求半天没动静 | 重试退避，最坏 30 分钟；先确认 `api.deepseek.com` 通（401 即通） |
+| 模型请求半天没动静 | 重试退避，最坏 30 分钟；先确认 `api.deepseek.com` 通（401 即通）。可压短，见「网络差时把静默压短」 |
+
+## 附录：用模拟器复验浏览器半边
+
+将来 dsh 升级或垫片改动，不用等真机——DevEco 的 2in1 模拟器跑的是真 ArkWeb，
+一条命令能把浏览器半边整个复验一遍：`./rehearse-emulator.sh`（机器能验的自动判，
+只留一张截图给肉眼）。下面是它背后的手工版，脚本坏了或要单步排查时用：
+
+1. DevEco Studio → Device Manager 装一个 **2in1** 镜像（例：MateBook Pro，
+   HarmonyOS 6.0.2 / API 22）并启动。开发机上照常 `kingcode-web.sh start`
+   （模拟器与开发机同网，直接访问开发机的 LAN IP——明文 HTTP + 非 loopback，
+   正好落在和真机一样的不安全上下文里）。
+2. hdc 三条命令就够（hdc 在
+   `<DevEco-Studio.app>/Contents/sdk/default/openharmony/toolchains/hdc`，
+   目标 `-t 127.0.0.1:5555`）：
+
+   ```bash
+   # 带 URL 拉起浏览器
+   hdc -t 127.0.0.1:5555 shell "aa start -A ohos.want.action.viewData -U http://<开发机LAN-IP>:3081"
+   # 抓客户机真屏（别信宿主窗口截图，缩放会骗人）
+   hdc -t 127.0.0.1:5555 shell "snapshot_display -f /data/local/tmp/x.jpeg"
+   hdc -t 127.0.0.1:5555 file recv /data/local/tmp/x.jpeg /tmp/x.jpeg
+   # 点屏幕（坐标按客户机分辨率算，这个 2in1 镜像是 3120×2080）
+   hdc -t 127.0.0.1:5555 shell "uitest uiInput click <X> <Y>"
+   ```
+
+3. 判读口径（与「三道闸」一一对应）：
+   - **工作区数据加载出来了** = 垫片生效、`/api` 放行，浏览器半边整体通过；
+   - **只有页面没有数据**（UI 完整、工作区转圈）= 用「跨机访问」一节那条 curl 探针
+     分辨：`/api` 403 是信任栅栏（闸②，重启服务重采 IP）；200 则是
+     `crypto.randomUUID`（闸③，垫片没挂上——查 `git pull` 之后重跑过
+     `profile/setup.sh` 没有）；
+   - **页面都打不开** = 没绑 0.0.0.0 或 IP 写错（闸①）。

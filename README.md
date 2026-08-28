@@ -238,6 +238,8 @@ dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pws
 
 Node 的下限是**硬的 22.19.0**（会话压缩顶层具名导入 `node:zlib` 的 zstd API，缺了是链接期 SyntaxError；`pi-ai` 又自报 `engines >= 22.19`），而 openEuler 源里只有 20.x——`dnf install nodejs` 这条路堵死，脚本走 nodejs.org 官方 linux-arm64 tarball 并校验 SHA256。
 
+验证状态：浏览器半边（页面/品牌/`/api`/垫片/WS/默认预设）已在 DevEco 2in1 模拟器（HarmonyOS 6.0.2，真 ArkWeb/华为浏览器）里彩排通过；openEuler 侧安装链路与真机宿主→虚拟机端口可达性仍未验。细节与十分钟复验流程见 [`deploy/harmonyos-pc/README.md`](deploy/harmonyos-pc/README.md) 的「模拟器彩排」一节与文末附录。
+
 ## 校验
 
 ```bash

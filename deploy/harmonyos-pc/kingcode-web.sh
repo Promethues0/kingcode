@@ -5,15 +5,23 @@
 #   ./kingcode-web.sh start     启动（后台常驻，带看门狗）
 #   ./kingcode-web.sh stop      停止（优雅，等它把会话 flush 完）
 #   ./kingcode-web.sh restart
-#   ./kingcode-web.sh status    进程 / 端口 / 就绪 / 跨机可达性 四项体检
+#   ./kingcode-web.sh status    进程 / 端口 / 就绪 / 跨机可达性 / IP 漂移 五项体检
 #   ./kingcode-web.sh logs      跟踪日志
 #   ./kingcode-web.sh url       打印宿主浏览器该开的地址（IP 每次开机会变）
+#   ./kingcode-web.sh prune     清掉 N 天没动的会话目录（默认干跑，--yes 才真删；
+#                               服务在跑时拒绝执行）
 #
 # 旋钮（环境变量）：
-#   KINGCODE_PORT   监听端口，默认 3081
-#   KINGCODE_BIND   all（默认，绑 0.0.0.0，宿主能访问）| loopback（只给本机）
-#   DSH_HOME        harness home，默认 $HOME/.kingcode
-#   KINGCODE_STATE  pid / 日志目录，默认 $DSH_HOME/run
+#   KINGCODE_PORT        监听端口，默认 3081
+#   KINGCODE_BIND        all（默认，绑 0.0.0.0，宿主能访问）| loopback（只给本机）
+#   DSH_HOME             harness home，默认 $HOME/.kingcode
+#   KINGCODE_STATE       pid / 日志目录，默认 $DSH_HOME/run
+#   KINGCODE_PRUNE_DAYS  prune 的保留天数，默认 30
+#   KINGCODE_NODE_OPTS   附加给引擎 node 进程的旗标（追加进 NODE_OPTIONS，看门狗每次
+#                        拉起引擎都带上）。几 GB 内存的虚拟机建议 --max-old-space-size=768：
+#                        V8 默认堆上限随物理内存走（约一半），2GB 机上放任它长到 1GB+ 会
+#                        先触发 OOM-killer 连累整机；封个顶让它改为干净 abort，看门狗接手重启
+#   KINGCODE_LOG_MAX_BYTES  日志轮转阈值，默认 8388608（8 MiB；只留一代 .1，上限即 16 MiB）
 #
 # 为什么是这套写法，每一条都对着一个实测过的上游行为：
 # - **nohup 是必需的**：dsh 不处理 SIGHUP，收到就直接死（退出码 129）。关掉终端
@@ -27,6 +35,12 @@
 # - **自己保证单实例**：同一个 $DSH_HOME 起两个实例会**双双成功**——harness home
 #   这一级没有任何跨进程锁（跨进程写锁只覆盖 settings.yaml 与 .credentials.yaml），
 #   而会话 jsonl 明确「一个会话只能有一个活写者」。
+# - **/api 信任名单是启动那一刻的快照**：绑 0.0.0.0 时 dsh 把当时本机所有
+#   non-internal IPv4 拍进名单。虚拟机 IP 变了（睡眠恢复、重连网络）服务不会察觉，
+#   宿主浏览器从此收 403——status 与 url 会对比「就绪行里的 LAN IP」和「现在的
+#   本机 IP」，不一致就大声提醒重启。
+# - **prune 在服务运行时拒绝执行**：会话 jsonl 只允许一个活写者，跑着删等于在
+#   写者脚下抽文件。保底再叠一层「只删 N 天没动的」——活会话的 mtime 不可能老。
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -68,13 +82,50 @@ alive() {
 SUP_SIG='kingcode-web.sh'          # 看门狗是 `bash .../kingcode-web.sh __supervise`
 ENG_SIG='--profile kingcode'       # 引擎是 `node .../dsh/lib/bin.js --profile kingcode ...`
 
-# 虚拟机自己的 IP。三级降级：iproute2 → hostname -I → dsh 自己在就绪行里算好的
-# LAN 地址。不能只靠第一条——这个函数撑着 url 与 status 的「跨机可达吗」，
-# 而那正是整套部署里最需要答案的一问，缺个 ip 命令就整行空白是最差的表现。
+# 日志里最后一条就绪行，以及 dsh 在那一刻拍进 /api 信任名单的 LAN IP。
+# 就绪行长这样：`dsh web: http://127.0.0.1:3081 (LAN: http://10.11.39.141:3081)`
+# ——只认 `LAN: http://` 后面那段数字，127.0.0.1 那半截永远匹配不上；
+# loopback 绑法的就绪行没有 LAN 半截，此时输出为空。
+last_ready_line() { grep "$READY_LINE" "$LOG" 2>/dev/null | tail -1; }
+trusted_lan_ip()  { last_ready_line | grep -o 'LAN: http://[0-9][0-9.]*' | sed 's|.*http://||'; }
+
+# 虚拟机自己的 IP，分两层：
+# vm_ip_live 只认**现在**能量到的（iproute2 → hostname -I），量不到就失败——
+#   IP 漂移检查只能用它：拿日志兜底去比日志，永远"没漂移"。
+# vm_ip 在 live 失败时退回日志就绪行里的 LAN 地址——url/status 的展示场景里，
+#   一个可能过期的地址也比整行空白强。
+# 每一级都必须**先收进变量、验非空再返回**，不能写 `cmd | awk … && return 0`：
+# 命令缺失时 pipefail 能救（127 传出来，降级继续），但「命令在、只是一时量不到
+# 地址」时管道退 0 带空输出（awk 对空输入成功），降级链会在第一级带着空字符串
+# 短路——而那正是睡眠恢复、网络刚断这种 IP 漂移检查最该说话的时刻（实测复现过：
+# 空输入的管道退 0）。
+vm_ip_live() {
+  got="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR==1{split($4,a,"/"); print a[1]; exit}')"
+  [ -n "$got" ] && { printf '%s\n' "$got"; return 0; }
+  got="$(hostname -I 2>/dev/null | awk '{print $1; exit}')"
+  [ -n "$got" ] && { printf '%s\n' "$got"; return 0; }
+  return 1
+}
 vm_ip() {
-  ip -4 -o addr show scope global 2>/dev/null | awk 'NR==1{split($4,a,"/"); print a[1]; exit}' && return 0
-  hostname -I 2>/dev/null | awk '{print $1; exit}' && return 0
-  grep -o 'LAN: http://[0-9.]*' "$LOG" 2>/dev/null | tail -1 | sed 's|.*http://||'
+  vm_ip_live && return 0
+  trusted_lan_ip
+}
+
+# IP 漂移的警报（$1=信任名单里的，$2=现在的）。status 与 url 共用。
+drift_warn() {
+  printf '\033[31m  !! IP 变了：/api 信任名单是启动那一刻拍的快照（%s），本机现在是 %s。\n' "$1" "$2"
+  printf '     宿主浏览器打新地址会被 403 挡住——重启服务（restart）才能刷新名单。\033[0m\n'
+}
+
+# 谁在监听 $PORT。ss（openEuler）优先，没有就退 lsof（macOS 彩排机没有 ss，
+# 没这级降级的话「端口占用」检查与 status 的端口行在开发机上会整个静默跳过）。
+# 两个工具都没有时输出空——调用方自己决定怎么说。
+port_listeners() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnH "sport = :$PORT" 2>/dev/null | awk '{print $4}' | paste -sd' ' -
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $9}' | sort -u | paste -sd' ' -
+  fi
 }
 
 # 用数组而不是字符串：路径里有空格时 $(...) 展开会散架，而 die 在子 shell 里
@@ -119,11 +170,15 @@ on_stop() {
 
 supervise() {
   build_engine_argv
+  # 引擎专属的 Node 旗标。追加而不是覆盖：外面可能已经有 NODE_OPTIONS。放在这里
+  # 而不是 start()：看门狗的每一次重启都要带上，不只第一次。dsh 运行期 spawn 的
+  # 子进程里没有别的 node（bash 是 pty、LSP 是原生 tsc 二进制），实际只作用于引擎。
+  [ -n "${KINGCODE_NODE_OPTS:-}" ] && export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }$KINGCODE_NODE_OPTS"
   fails=0
   trap on_stop TERM INT
   while :; do
     started="$(date +%s)"
-    printf '\n[%s] kingcode-web: 启动引擎 %s\n' "$(date '+%F %T')" "${ENGINE[*]}"
+    printf '\n[%s] kingcode-web: 启动引擎 %s%s\n' "$(date '+%F %T')" "${ENGINE[*]}" "${NODE_OPTIONS:+  (NODE_OPTIONS: $NODE_OPTIONS)}"
     "${ENGINE[@]}" &
     engine=$!
     echo "$engine" > "$ENG_PID"
@@ -148,6 +203,11 @@ supervise() {
       break
     fi
     printf '[%s] kingcode-web: 引擎异常退出（码 %s，活了 %ss），2s 后重启\n' "$(date '+%F %T')" "$code" "$ran"
+    # 崩溃重启环里也要轮转：start() 只在拉起那一刻轮转一次，而 dsh 平时几乎不写
+    # stdout（实测三天 21KB），长跑中唯一能把日志顶过上限的就是这里——每次崩溃都
+    # 写一段栈，无人值守跑上几天就能越过 8 MiB，之后一直涨到下一次 start。
+    # 只放崩溃分支、不放环顶：首轮轮转会作废 start() 记下的就绪偏移 mark。
+    rotate_log
     sleep 2
   done
   rm -f "$SUP_PID" "$ENG_PID" "$STOP_FLAG"
@@ -169,9 +229,8 @@ start() {
   trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
   alive "$SUP_PID" "$SUP_SIG" && die "已经在跑了（看门狗 pid $(cat "$SUP_PID")）。要重来用 restart"
-  if command -v ss >/dev/null 2>&1 && ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
-    die "端口 $PORT 已被别的进程占用——换 KINGCODE_PORT，或先停掉那个进程"
-  fi
+  busy="$(port_listeners)"
+  [ -n "$busy" ] && die "端口 $PORT 已被别的进程占用（$busy）——换 KINGCODE_PORT，或先停掉那个进程"
 
   rotate_log
   rm -f "$STOP_FLAG"
@@ -255,13 +314,23 @@ probe_api() {
 status() {
   printf '  %-14s %s\n' '看门狗' "$(alive "$SUP_PID" "$SUP_SIG" && echo "在跑 (pid $(cat "$SUP_PID"))" || echo '没在跑')"
   printf '  %-14s %s\n' '引擎'   "$(alive "$ENG_PID" "$ENG_SIG" && echo "在跑 (pid $(cat "$ENG_PID"))" || echo '没在跑')"
-  if command -v ss >/dev/null 2>&1; then
-    # 不能写 `... || echo '没在听'`：没人监听时 ss 输出为空但退出 0，整条管道成功，
+  if command -v ss >/dev/null 2>&1 || command -v lsof >/dev/null 2>&1; then
+    # 不能写 `... || echo '没在听'`：没人监听时 ss/lsof 输出为空但管道退 0，
     # 那个兜底永远不触发，打印出来的是一个空字段——看着像"这项没查"，其实是"没在听"。
-    listen="$(ss -ltnH "sport = :$PORT" 2>/dev/null | awk '{print $4}' | paste -sd' ' -)"
+    listen="$(port_listeners)"
     printf '  %-14s %s\n' "端口 $PORT" "${listen:-没在听}"
+  else
+    printf '  %-14s %s\n' "端口 $PORT" '没有 ss / lsof——这项没查成'
   fi
-  printf '  %-14s %s\n' '就绪行' "$(grep "$READY_LINE" "$LOG" 2>/dev/null | tail -1 || echo '日志里还没有')"
+  # 就绪行同理不能 `grep | tail || echo`：tail 对空输入照样退 0，兜底永远不触发，
+  # 没有就绪行时这里会打出一个空字段。另外就绪行是**追加日志里最后一条**——
+  # 引擎没在跑时它只是历史，不加说明的话五行体检里四行说"死了"、这行却贴着
+  # 一个活生生的 URL，谁看谁迷糊。
+  ready="$(last_ready_line)"
+  if [ -n "$ready" ] && ! alive "$ENG_PID" "$ENG_SIG"; then
+    ready="$ready  ←历史记录（引擎现在没在跑）"
+  fi
+  printf '  %-14s %s\n' '就绪行' "${ready:-日志里还没有}"
   printf '  %-14s %s\n' '本机 /api' "$(probe_api "127.0.0.1:$PORT")  （200 才算真活着）"
   if [ "$BIND" = all ]; then
     ip="$(vm_ip)"
@@ -273,6 +342,23 @@ status() {
       printf '  %-14s %s\n' '本机打 LAN 口' "$ip:$PORT → $code  （403=信任栅栏拦了；连不上=没绑对或防火墙。此项不证明宿主可达）"
     else
       printf '  %-14s %s\n' '跨机 /api' '量不到本机 IP（没有 ip / hostname，日志里也没有 LAN 行）——这项没查成'
+    fi
+    # IP 漂移：信任名单是启动快照，睡眠恢复/重连网络后 IP 变了服务不会察觉，
+    # 宿主只会开始收 403 而这里毫无迹象——所以专门比一次。只在引擎活着时比
+    # （死了谈不上名单），只用 vm_ip_live（拿日志兜底去比日志永远相等，是自欺）。
+    if alive "$ENG_PID" "$ENG_SIG"; then
+      trusted="$(trusted_lan_ip)"
+      if [ -n "$trusted" ]; then
+        if live="$(vm_ip_live)"; then
+          if [ "$live" = "$trusted" ]; then
+            printf '  %-14s %s\n' 'IP 漂移' "没有（信任名单与当前 IP 一致：$live）"
+          else
+            drift_warn "$trusted" "$live"
+          fi
+        else
+          printf '  %-14s %s\n' 'IP 漂移' '量不到本机当前 IP（没有 ip / hostname -I）——检查不了'
+        fi
+      fi
     fi
   fi
 }
@@ -288,6 +374,85 @@ url() {
   printf '  在**鸿蒙宿主侧的浏览器**里打开：  http://%s:%s\n' "${ip:-<虚拟机IP>}" "$PORT"
   printf '  虚拟机内部自测：                  http://127.0.0.1:%s\n' "$PORT"
   printf '  注意：融合开发引擎的虚拟机 IP 每次开机可能变，别把它存成书签——用本命令重新问。\n'
+  # url 是用户拿地址的入口——IP 漂移了还把新地址递出去而不说一声，等于送他去 403。
+  if alive "$ENG_PID" "$ENG_SIG"; then
+    trusted="$(trusted_lan_ip)"
+    if [ -n "$trusted" ] && live="$(vm_ip_live)" && [ "$live" != "$trusted" ]; then
+      drift_warn "$trusted" "$live"
+    fi
+  fi
+}
+
+# ── prune ──────────────────────────────────────────────────────────────────
+# $DSH_HOME/sessions 没有任何东西会自动清（上游无 TTL，虚拟机里也没有
+# systemd-tmpfiles 兜底），而虚拟机磁盘只有几 GB——单个会话的 jsonl.zstd 实测
+# 常见几百 KB、重的超过 2 MB，攒一年就是问题。结构固定两级：
+# <sessions>/<项目路径编码>/<会话目录>/session.jsonl.zstd…，删除单位是会话目录。
+# 判老不能只看目录 mtime（往 jsonl 追加只动文件 mtime 不动目录），所以判据是
+# 「目录自身与其中所有文件都超过 N 天没动」。
+prune() {
+  days="${KINGCODE_PRUNE_DAYS:-30}"
+  case "$days" in ''|*[!0-9]*) die "KINGCODE_PRUNE_DAYS 得是正整数，现在是「${KINGCODE_PRUNE_DAYS:-}」" ;; esac
+  [ "$days" -ge 1 ] || die 'KINGCODE_PRUNE_DAYS 至少是 1——0 天等于把正在用的会话也划进来'
+
+  yes=0
+  for arg in "$@"; do
+    case "$arg" in
+      --yes) yes=1 ;;
+      *) die "prune 不认识的参数：$arg（只支持 --yes）" ;;
+    esac
+  done
+
+  sess="$DSH_HOME/sessions"
+  [ -d "$sess" ] || { info "没有会话目录（$sess），无可清"; return 0; }
+
+  # 服务在跑就拒绝：会话 jsonl 只允许一个活写者，跑着删等于在写者脚下抽文件。
+  # 孤儿引擎（看门狗被 SIGKILL 后重父到 PID 1 的那种）也算在跑，所以两个 pid 都查。
+  if alive "$SUP_PID" "$SUP_SIG" || alive "$ENG_PID" "$ENG_SIG"; then
+    die '服务在跑，拒绝清理——先 stop 再 prune（会话文件只允许一个活写者）'
+  fi
+
+  victims=()
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    # find 输出为空 = 目录自己和里面的所有东西都不比 N 天新 → 可删。
+    if [ -z "$(find "$d" -mtime -"$days" -print -quit 2>/dev/null)" ]; then
+      victims+=("$d")
+    fi
+  done < <(find "$sess" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | sort)
+
+  # 顺手把系统 tmp 里的溢写孤儿量出来（只报数，不动手）：Web 形态的 spill-local
+  # 没配 root，溢写落在 $TMPDIR/dsh-spill-*（每次进程启动 mkdtemp 一个，进程死后
+  # 没人收）。不删是因为同机可能还有**别的** dsh 产品在跑，它的 spill 目录长得
+  # 一模一样，删了会弄断人家活会话的溢写回读。
+  tmproot="${TMPDIR:-/tmp}"
+  spill_n="$(find "$tmproot" -mindepth 1 -maxdepth 1 -type d -name 'dsh-spill-*' 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${spill_n:-0}" -gt 0 ]; then
+    spill_sz="$(find "$tmproot" -mindepth 1 -maxdepth 1 -type d -name 'dsh-spill-*' -print0 2>/dev/null | xargs -0 du -shc 2>/dev/null | tail -1 | awk '{print $1}')"
+    info "提示：$tmproot 下有 $spill_n 个 dsh-spill-* 溢写目录（合计 ${spill_sz:-?}）。本命令不动它们——确认同机没有别的 dsh 产品在跑时，可以手动清"
+  fi
+
+  if [ "${#victims[@]}" -eq 0 ]; then
+    info "超过 $days 天没动的会话：0 个，无可清（$sess 现在共 $(du -sh "$sess" 2>/dev/null | awk '{print $1}')）"
+    return 0
+  fi
+
+  info "以下 ${#victims[@]} 个会话目录超过 $days 天没动过："
+  du -sh "${victims[@]}" 2>/dev/null | sed 's/^/    /'
+  total="$(du -shc "${victims[@]}" 2>/dev/null | tail -1 | awk '{print $1}')"
+  info "合计 ${total:-?}"
+
+  if [ "$yes" -ne 1 ]; then
+    info '这是干跑，什么都没删。确认清单无误后：kingcode-web.sh prune --yes'
+    return 0
+  fi
+
+  for d in "${victims[@]}"; do
+    rm -rf "$d"
+  done
+  # 项目层目录空了就顺手收掉；还有会话的 rmdir 会失败，静默即可。
+  find "$sess" -mindepth 1 -maxdepth 1 -type d -exec rmdir {} \; 2>/dev/null
+  info "已删除 ${#victims[@]} 个会话目录，释放 ${total:-?}"
 }
 
 case "${1:-}" in
@@ -297,6 +462,7 @@ case "${1:-}" in
   status)  status ;;
   logs)    tail -n 50 -f "$LOG" ;;
   url)     url ;;
+  prune)   shift; prune "$@" ;;
   __supervise) supervise ;;
-  *) printf '用法: %s {start|stop|restart|status|logs|url}\n' "${0##*/}"; exit 2 ;;
+  *) printf '用法: %s {start|stop|restart|status|logs|url|prune [--yes]}\n' "${0##*/}"; exit 2 ;;
 esac

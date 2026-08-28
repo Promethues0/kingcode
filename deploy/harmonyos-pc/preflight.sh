@@ -28,7 +28,11 @@ export LANG=C
 
 KINGCODE_PORT="${KINGCODE_PORT:-3081}"
 KC_HOME="${DSH_HOME:-$HOME/.kingcode}"
-NEED_DISK_MB=2048   # 仓库 node_modules 实测 265MB + Node 约 150MB + npm 缓存与编译临时文件
+# 一整套装完实测约 1.0GB（开发机 darwin-arm64 对应物、全新 npm 缓存下量的，linux-arm64
+# 同量级）：仓库 node_modules 266MB + 全局 dsh+pnpm 301MB + Node 解压后 187MB +
+# npm 缓存 214MB（npm ci 与 npm i -g 两步合计）+ 头文件与编译临时件。2048 是含工作
+# 余量的下限——会话 jsonl 与 spill 没有任何东西会自动清（见 README 已知限制）。
+NEED_DISK_MB=2048
 
 say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 item() { printf '  %-26s %s\n' "$1" "$2"; }

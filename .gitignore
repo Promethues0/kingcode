@@ -14,3 +14,6 @@ win/publish/
 # eval 运行产物（基线 eval/baseline.json 有意入库，不在此列）
 eval/results/
 eval/runs/
+
+# rehearse-emulator.sh 的产物目录（截图与页面快照，不入库）
+rehearsal-*/
