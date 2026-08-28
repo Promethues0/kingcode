@@ -277,8 +277,27 @@ glibc 2.38、locale `C.UTF-8`、SELinux Disabled、sudo 免密可用、PID 1 是
 
 至此这台鸿蒙 PC 自洽：壳与引擎都在同一台机器上，不依赖任何外部机器。
 
-**踩到的坑**：终端里的中文输入法会把命令吃掉（`uname -srm` 变成「U那么-上热门」），
-**按一下 Shift 切英文**再敲。用 hdc 远程驱动时尤其要注意这点。
+**踩到的坑**：
+
+1. 终端里的中文输入法会把命令吃掉（`uname -srm` 变成「U那么-上热门」），
+   **按一下 Shift 切英文**再敲。用 hdc 远程驱动时尤其要注意这点。
+2. **同版本 dsh 的前端未必是同一份**：都自称 0.1.0-rc.6，但全新 npm 安装会把子依赖
+   解析到更新版本、前端重打包（实测资源名 `index-CA9Bpko5.js` vs 开发机的
+   `index-Dqw48FrP.js`）。后果是品牌覆盖层里凡是锚在 **DOM 层级**上的选择器都会
+   **安静失效**——`button > svg` 落空，上游的鲸鱼字标就漏在 KingCode 旁边，
+   而同一段 CSS 的 `::before`/`::after` 照常生效，不报任何错。选择器只能锚组件自身的
+   稳定属性（`viewBox`、类名后缀）。已修（见 `web-brand/client.js` 的 `BRAND_CSS`）。
+
+**跨机访问下「模型配置页打不开」是设计如此**，不是装坏了：同一台机器上实测
+`settings.describe` 从 `127.0.0.1` 返回 400（请求体缺字段——说明放行了），
+从 `172.16.105.2` 返回 **403**。配置面被上游钉死 loopback（见「跨机访问」一节），
+所以 **API key 只能在虚拟机侧落盘**：
+
+```bash
+echo 'DEEPSEEK_API_KEY: sk-你的key' > ~/.kingcode/.credentials.yaml
+chmod 600 ~/.kingcode/.credentials.yaml   # 组/其他位有权限会让 dsh 在 boot 期拒启
+~/kingcode/deploy/harmonyos-pc/kingcode-web.sh restart
+```
 
 ## 待你在机器上验的
 
