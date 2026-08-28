@@ -256,8 +256,15 @@ body[data-ds-dark-theme] ${selector} {
 		 * 匹配不到时整段是无害的空规则，UI 退回上游原样，不会白屏。
 		 */
 		const BRAND_CSS = `
-/* 侧栏 wordmark：藏掉 deepseek HARNESS 原标，换 K 字标 + 字样 */
-button[class*="_brand"] > svg[viewBox="0 0 182 24"] { display: none !important; }
+/* 侧栏 wordmark：藏掉 deepseek HARNESS 原标，换 K 字标 + 字样。
+   **用后代选择器而不是 `>`**：上游把 BrandWordmark 直接放在 button 下，但不同
+   构建里外面可能多包一层（真机实测：同为 0.1.0-rc.6，全新 npm 安装解析到的子依赖
+   更新，前端重打包后「button > svg」落空，鲸鱼漏了出来，而同一段 CSS 里的
+   ::before/::after 照常生效——症状是「K 🐋deepseek KingCode」并排）。
+   viewBox 是这枚字标的稳定身份（182:24 的比例写死在组件里），比 DOM 层级可靠。 */
+button[class*="_brand"] svg[viewBox="0 0 182 24"] { display: none !important; }
+/* 兜底：万一它哪天不在 _brand 按钮里了，整页范围内这个 viewBox 也只有它 */
+svg[viewBox="0 0 182 24"] { display: none !important; }
 button[class*="_brand"] {
 	display: inline-flex !important;
 	align-items: center;
@@ -276,7 +283,7 @@ button[class*="_brand"]::after {
 /* 收起态（rail）：上游此时不渲染 _brand 按钮，改在切换钮里放鲸鱼单标
    （静止显示鲸鱼、悬停换成展开图标）。这里换成 K 字标并保留那套互换逻辑。
    用 :has(_railFish) 当状态判据——该元素只在收起态存在，是最稳的锚点。 */
-button[class*="_toggle"] [class*="_railFish"] { display: none !important; }
+button[class*="_toggle"] [class*="_railFish"], [class*="_railFish"] { display: none !important; }
 ${markRule('button[class*="_toggle"]:has([class*="_railFish"])::before', 21)}
 button[class*="_toggle"]:has([class*="_railFish"]):hover::before { display: none; }
 
