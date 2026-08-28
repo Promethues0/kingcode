@@ -252,7 +252,7 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。命令
 
 Node 的下限是**硬的 22.19.0**（会话压缩顶层具名导入 `node:zlib` 的 zstd API，缺了是链接期 SyntaxError；`pi-ai` 又自报 `engines >= 22.19`），而 openEuler 源里只有 20.x——`dnf install nodejs` 这条路堵死，脚本走 nodejs.org 官方 linux-arm64 tarball 并校验 SHA256。
 
-验证状态：浏览器半边（页面/品牌/`/api`/垫片/WS/默认预设）已在 DevEco 2in1 模拟器（HarmonyOS 6.0.2，真 ArkWeb/华为浏览器）里彩排通过；openEuler 侧安装链路与真机宿主→虚拟机端口可达性仍未验。细节与十分钟复验流程见 [`deploy/harmonyos-pc/README.md`](deploy/harmonyos-pc/README.md) 的「模拟器彩排」一节与文末附录。
+验证状态：**整条链路已在鸿蒙 PC 真机上跑通**（HUAWEI MateBook 14 / HarmonyOS 7.0.0.102 / API 26，虚拟机是 openEuler 24.03 LTS-SP1）——preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳连自家引擎全部一次过，宿主→虚拟机端口可达性也验掉了。细节见 [`deploy/harmonyos-pc/README.md`](deploy/harmonyos-pc/README.md) 的「真机实测」一节；浏览器半边另有一份模拟器十分钟复验流程（`rehearse-emulator.sh` + 文末附录）。
 
 ## 校验
 

@@ -13,7 +13,10 @@ bash、git、tsc、LSP、子代理、multi_edit 一件不少，CLI 与 Web 两�
 clone，但那样你就得先有 `install.sh`——鸡生蛋）。在虚拟机的 Linux 终端里：
 
 ```bash
-# ⓪ 先拿到仓库（clone 不通就从 /mnt/linux_share 拷一份到本地盘，别在共享目录里装）
+# ⓪ 先拿到仓库。**openEuler 镜像里默认没有 git**（真机实测：git: command not found，
+#    看起来像"clone 失败"，其实是没这个命令），所以先装它；install.sh 第 1 步也会装，
+#    但那时你还没有 install.sh——鸡生蛋，这一条得自己来。
+sudo dnf install -y git
 git clone https://github.com/Promethues0/kingcode.git ~/kingcode
 cd ~/kingcode/deploy/harmonyos-pc
 
@@ -244,29 +247,53 @@ available 3701，`df -h /` 报 503G 可用（已用 745M）。对照 `preflight.
 `NEED_DISK_MB=2048`：**磁盘绰绰有余**；内存 4G 也够（引擎实测 RSS 48MB），
 但仍建议小内存机加 `KINGCODE_NODE_OPTS=--max-old-space-size=768` 兜住病理会话。
 
-**环境事实**：`uname -srm` → `Linux 6.6.0 aarch64`（与文档一致）；镜像包名
-`com.huawei.developer.rgm.images_openeuler22.03`（openEuler 22.03）；虚拟机由
-「融合开发引擎」应用的系统控制台点「开启」启动，起来后是鸿蒙桌面上的一个终端窗口。
+**环境事实**：`uname -srm` → `Linux 6.6.0 aarch64`；`/etc/os-release` 报
+**openEuler 24.03 (LTS-SP1)**，dnf 里的包也都是 `oe2403sp1` 后缀——**别被镜像包名
+`com.huawei.developer.rgm.images_openeuler22.03` 里的 22.03 误导，那只是包名**。
+glibc 2.38、locale `C.UTF-8`、SELinux Disabled、sudo 免密可用、PID 1 是 `hsl_init`、
+**没有 `crontab`**（`@reboot` 自启这条路就此确认走不通）。`/mnt/linux_share` 存在但
+`root:root 700`，普通用户不可写——与官方 FAQ 一致，仓库与 harness home 都别放那儿。
+虚拟机由「融合开发引擎」应用的系统控制台点「开启」启动，起来后是鸿蒙桌面上的一个
+终端窗口。
+
+**默认没有的命令**：**git**、node、npm、pnpm、make、gcc、g++。git 这条最坑——
+没有它连仓库都拿不到，而报错 `git: command not found` 看起来像"clone 失败"
+（本次就是这么被误判成"网络连不上"的）。「三步」的第 ⓪ 步已经把 `dnf install -y git`
+写在最前面。
+
+**完整安装链路一次装通**（八步无红灯）：
+
+| 步骤 | 实测 |
+|---|---|
+| preflight | 退出码 0，103 行，无阻塞项 |
+| 1 系统包 | `Complete!`（gcc-c++ 12.3.1 / make 4.4.1 / python3 3.11.6 / glibc-devel 2.38…） |
+| 2 Node | v24.19.0 从 cdn.npmmirror.com 下 29.1M @ 12.7M/s，**SHA256 校验 OK**（`--mirror` 把 Node 二进制也改道镜像那条优化生效） |
+| 6 `npm ci` | 通过，**全程没碰 node-gyp**——`node_modules/node-pty/prebuilds/` 里 `linux-arm64` 在列，overrides 免编译在真机兑现 |
+| 7 dsh/pnpm/profile | 就绪 |
+| 自检 | `npm test` **全部通过** |
+| Web 服务 | 引擎就绪 `http://172.16.105.2:3081` |
+| 五项体检 | 全绿：端口 `0.0.0.0:3081`、本机 `/api` 200、LAN 口 200、IP 漂移「没有（信任名单一致）」 |
+| 鸿蒙壳 | 填 `172.16.105.2:3081` 连上**自家**引擎，工作区加载 |
+
+至此这台鸿蒙 PC 自洽：壳与引擎都在同一台机器上，不依赖任何外部机器。
 
 **踩到的坑**：终端里的中文输入法会把命令吃掉（`uname -srm` 变成「U那么-上热门」），
 **按一下 Shift 切英文**再敲。用 hdc 远程驱动时尤其要注意这点。
 
 ## 待你在机器上验的
 
-1. `@reboot` 自启到底行不行：`preflight.sh` 会报 `crontab` 在不在、PID 1 是谁，
-   但「开机时真的会拉起来吗」只能你重启一次试。
-2. openEuler 侧的完整安装链路（dnf 装工具链、Node tarball、`npm ci`、
-   全局 dsh 的 node-pty 现场编译）——preflight/install 两个脚本都还没在真机上跑过。
+1. **开机自启**：已确认没有 `crontab`、PID 1 是 `hsl_init`，`@reboot` 这条路走不通。
+   当前做法是开终端后手动 `kingcode-web.sh start`（`install.sh` 已把 PATH 快照接进
+   `~/.bashrc`）。找到别的自启钩子欢迎补进来。
+2. **长期运行的表现**：会话与 spill 的实际增长速度、`prune` 的收益、看门狗在真实
+   崩溃下的行为——都得跑上一段时间才知道。
 
-**验证状态**：浏览器半边已在 HarmonyOS 6.0.2 模拟器的真 ArkWeb 里验过（见上面
-「模拟器彩排」）。开发机（macOS）上验过的：脚本全部 shellcheck 干净、
+**验证状态**：**整条链路已在鸿蒙 PC 真机上跑通**（见上面「真机实测」）——
+preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳连自家引擎，
+全部一次过。开发机（macOS）上另外验过的：脚本全部 shellcheck 干净、
 `kingcode-web.sh` 的 start/stop/restart/并发start/看门狗重启/端口被占时不谎报就绪
-都实跑过、`install.sh` 用打桩的方式把八步逻辑走通过、垫片有 30+ 条断言的无头测试
-并在真起的服务上确认注入生效。node-pty 免编译那条：1.2.0-beta.15 的 linux-arm64
-预编译拆包验过 ELF 头（aarch64）、darwin-arm64 那份在开发机上真 spawn 过 pty、
-override 后 `npm ci` + 全部无头测试 + 无钥烟测都过。**仍未在鸿蒙 PC 上跑过的：
-openEuler 侧安装链路（dnf、aarch64、全局 dsh 装包时的 node-pty 现场编译、
-linux-arm64 预编译在真机上的加载）与真机宿主→虚拟机可达性。**
+都实跑过、垫片有 30+ 条断言的无头测试（外层 catch 那条用变异体验过覆盖真实）、
+浏览器半边在 HarmonyOS 6.0.2 模拟器的真 ArkWeb 里彩排过。
 
 ## 排障速查
 
