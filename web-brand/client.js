@@ -257,7 +257,7 @@ body[data-ds-dark-theme] ${selector} {
 		 */
 		const BRAND_CSS = `
 /* 侧栏 wordmark：藏掉 deepseek HARNESS 原标，换 K 字标 + 字样。
-   **用后代选择器而不是 `>`**：上游把 BrandWordmark 直接放在 button 下，但不同
+   **用后代选择器而不是直接子元素**：上游把 BrandWordmark 直接放在 button 下，但不同
    构建里外面可能多包一层（真机实测：同为 0.1.0-rc.6，全新 npm 安装解析到的子依赖
    更新，前端重打包后「button > svg」落空，鲸鱼漏了出来，而同一段 CSS 里的
    ::before/::after 照常生效——症状是「K 🐋deepseek KingCode」并排）。
@@ -295,7 +295,7 @@ button[class*="_toggle"]:has([class*="_railFish"]):hover::before { display: none
    徽章标的是上游 harness 的预览状态，不该出现在自己的客户端上。 */
 [class*="_fishHitbox"] { display: none !important; }
 [class*="_previewBadge"] { display: none !important; }
-[class*="_headline"] > [class*="_headlineText"] { display: none !important; }
+[class*="_headlineText"] { display: none !important; }
 /* 上游 _headline 是 grid 且优先级更高，不去覆盖它的布局——grid 会把
    ::before/::after 正常排进轨道。选择器排除 _headlineText，
    否则 [class*="_headline"] 会把它一并命中。 */
