@@ -84,6 +84,13 @@ cp "$REPO/profile/cordis.patch.yml" "$PROFILE/cordis.patch.yml"
 # 装品牌层。-w 是必需的：pnpm 会把 profile 目录视作 workspace root
 dsh plugin --profile "$PROFILE_NAME" add -w "$REPO/web-brand"
 
+# 装跨机配置面。**装 ≠ 启用**：dsh plugin add 只是 pnpm link，配置面要靠
+# deploy/harmonyos-pc/credential-bridge.patch.yml 显式挂（它是个写凭证的入口，
+# 默认该是「没有」）。而它必须先装好，那个覆盖层才解析得到包名。
+# 一并装它的浏览器半侧：client bundle 的发现走 ctx.loader.entries()——
+# 没挂进配置树就不会 serve，所以本机 localhost 上不会平白多出一个空分区。
+dsh plugin --profile "$PROFILE_NAME" add -w "$REPO/web-config"
+
 # 把仓库本身 link 成 profile 里的包 `kingcode`：preset 的 agent.cordis.yml 用
 # `kingcode/plugins/<x>.js` 引用本仓库插件（preset 行的包名从 profile 目录解析，
 # 详见 presets/kingcode/agent.cordis.yml 头注释）。link 而非复制：插件在仓库原位

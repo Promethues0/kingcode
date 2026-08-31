@@ -17,8 +17,9 @@
 #   DSH_HOME             harness home，默认 $HOME/.kingcode
 #   KINGCODE_STATE       pid / 日志目录，默认 $DSH_HOME/run
 #   KINGCODE_PRUNE_DAYS  prune 的保留天数，默认 30
-#   KINGCODE_CREDENTIAL_BRIDGE=1  挂上凭证桥（跨机填 API key 用；默认不挂，见
-#                        deploy/harmonyos-pc/credential-bridge.patch.yml 的头注释）
+#   KINGCODE_CREDENTIAL_BRIDGE=1  挂上跨机配置面：设置页里多出一个「KingCode」分区，
+#                        用来填 API key（跨机时上游那几栏全是 403）。默认不挂——
+#                        它是个写凭证的入口。详见 credential-bridge.patch.yml 头注释
 #   KINGCODE_NODE_OPTS   附加给引擎 node 进程的旗标（追加进 NODE_OPTIONS，看门狗每次
 #                        拉起引擎都带上）。几 GB 内存的虚拟机建议 --max-old-space-size=768：
 #                        V8 默认堆上限随物理内存走（约一半），2GB 机上放任它长到 1GB+ 会

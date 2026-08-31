@@ -288,16 +288,45 @@ glibc 2.38、locale `C.UTF-8`、SELinux Disabled、sudo 免密可用、PID 1 是
    而同一段 CSS 的 `::before`/`::after` 照常生效，不报任何错。选择器只能锚组件自身的
    稳定属性（`viewBox`、类名后缀）。已修（见 `web-brand/client.js` 的 `BRAND_CSS`）。
 
-**跨机访问下「模型配置页打不开」是设计如此**，不是装坏了：同一台机器上实测
+**跨机访问下「设置页大半打不开」是设计如此**，不是装坏了：同一台机器上实测
 `settings.describe` 从 `127.0.0.1` 返回 400（请求体缺字段——说明放行了），
-从 `172.16.105.2` 返回 **403**。配置面被上游钉死 loopback（见「跨机访问」一节），
-所以 **API key 只能在虚拟机侧落盘**：
+从 `172.16.105.2` 返回 **403**。开发机上按 LAN 地址复现过整页的样子：
+
+| 设置页分区 | 跨机表现 |
+| --- | --- |
+| 通用设置 | 预设与权限两栏卡在「正在加载」/「不可用」，下面挂着 `transport failure for /api/settings.describe: HTTP 403` |
+| 模型 | 整页只剩一行红字「加载提供方目录失败」+ 一个「重试」按钮 |
+| 插件 / Agent 预设 | 同因 403 降级 |
+| **KingCode** | **正常**——它不走 `/api`，走自己的 `trusted-host` 通道 |
+
+**换模型不受影响**：模型选择器走 `llm.models` / `session.selectModel`，上游**故意**
+没把这两个钉进禁列（注释原文说 LAN 客户端的模型选择器合法地需要它）。真机验过
+跨机 `ok:true`，且换一次模型 `settings.yaml` 里就会长出 `agent-default-model` 段。
+所以换模型用**输入框上的模型选择器**，不要去设置页的「模型」分区。
+
+### 填 API key 的两条路
+
+**① 设置页里的「KingCode」分区（推荐）**——需要启动时带上凭证桥：
+
+```bash
+KINGCODE_CREDENTIAL_BRIDGE=1 ~/kingcode/deploy/harmonyos-pc/kingcode-web.sh restart
+```
+
+然后在鸿蒙壳里开「设置 → KingCode」，填 key、保存即可。这条路只写不读：
+分区永远不会显示已有的值，服务端也从不回传它（契约见 `web-config/index.js`）。
+`KINGCODE_CREDENTIAL_BRIDGE` 不是默认开的——它是个写凭证的入口，默认该是「没有」。
+
+**② 在虚拟机侧落盘**（不想开那条通道时）：
 
 ```bash
 echo 'DEEPSEEK_API_KEY: sk-你的key' > ~/.kingcode/.credentials.yaml
 chmod 600 ~/.kingcode/.credentials.yaml   # 组/其他位有权限会让 dsh 在 boot 期拒启
 ~/kingcode/deploy/harmonyos-pc/kingcode-web.sh restart
 ```
+
+启动服务的 shell 里若 `export` 过同名环境变量，它**赢过**文件（上游让它可见地只读，
+而不是静默遮蔽写入）。这时「KingCode」分区会显示「已配置（来源：env）」并说明
+在这里改不生效——上游的 `set` 也会直接拒绝，不会假装写成功。
 
 ## 待你在机器上验的
 
@@ -328,6 +357,45 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
 | 服务起得来，但预设选择器里没有 KingCode、也没有默认项 | `$DSH_HOME/.agent-presets/kingcode` 不在（没跑 `profile/setup.sh`）。这是个**不响的失败**：服务照常起、品牌照常是 KingCode。`kingcode-web.sh start` 已经会在启动前拦住它 |
 | CLI 报 MISSING_CREDENTIAL，但你记得填过 key | key 还在老的 `~/.dsh/.credentials.yaml` 里。跑一次 `profile/setup.sh` 会搬过来（它不需要 dsh/pnpm 也能走到搬家那一步） |
 | 模型请求半天没动静 | 重试退避，最坏 30 分钟；先确认 `api.deepseek.com` 通（401 即通）。可压短，见「网络差时把静默压短」 |
+
+## 跨机配置面（web-config）的真机记录
+
+2026-08-31 在真机上装通并逐项验过：28 条断言全绿，含完整写入路径
+（set → configured:true → unset → configured:false）、四条信任栅栏分支
+（伪造 Host / 跨源 Origin / sec-fetch-site: cross-site / GET 方法 / 缺 content-type），
+以及 setup.sh 重装后对既有面（品牌层、垫片、preset、`/api`）的回归。
+自检用的是一次性假值，验完即清；引擎日志里只留字符数，**没有任何密钥值**。
+
+**只有真机才会暴露的五件事**：
+
+1. **上游「模型」页跨机时的报错措辞和浏览器里不一样**。开发机上按 LAN 地址访问看到的是
+   `transport failure for /api/settings.describe: HTTP 403`；鸿蒙壳里看到的却是
+   `加载提供方目录失败: settings are unavailable in this browser`——是客户端**自己**
+   关的闸，压根没发请求。按前者去抓包会一无所获。
+2. **`↔`（U+2194）在鸿蒙的字体回退里被当 emoji 渲染**，成一个蓝色方块。UI 文案里
+   不要用箭头之类的符号字符，改用汉字。
+3. **改了 client bundle 的内容必须重启引擎**。client-modules 的包元数据按名缓存且
+   永不过期（原文：plugin-set changes take effect on restart; bundle content changes
+   reach the graph only through `ClientModuleRegistry.rebuilt`）。只改文件不重启，
+   服务上仍是旧 bundle。
+4. **壳里的 WebView 不会因为引擎重启而重载**。要看到新前端得
+   `aa force-stop com.kingcode.client` 再 `aa start`。
+5. **点输入框时 ArkWeb 会整片黑一下**，是输入法弹出时的瞬时重绘，不是崩溃
+   （`ps` 里 `:render` 进程都还在），下一次点击就恢复。别当成 bug 去查。
+
+**凭证桥已设为常开**：虚拟机的 `~/.bashrc` 末尾加了 `export KINGCODE_CREDENTIAL_BRIDGE=1`
+（改前备份在 `~/.bashrc.bak-kingcode`）。验过：用不带任何显式变量的登录 shell 重启，
+引擎命令行里自动带上 `--patch …/credential-bridge.patch.yml`，通道回 `ok:true`。
+临时想不带桥启动用 `KINGCODE_CREDENTIAL_BRIDGE=0 …/kingcode-web.sh restart`
+（启动器判的是 `= 1`，所以设成 0 就关）。
+
+**远程驱动虚拟机终端的两个坑**（用 hdc + uitest 时）：
+
+- `uitest uiInput text` 会**丢掉开头若干字符**（实测丢了 13 个，`curl -sSf htt` 整段没了，
+  剩下的 `p://…` 被 bash 当成文件名报 No such file）。办法是在命令前垫一串空格当牺牲位
+  ——bash 忽略前导空白，丢的是空格而不是命令。
+- 虚拟机只能单向够到开发机，靠截图读输出既慢又容易看漏。开发机上起一个既发文件、
+  又收 POST 的小中继，让虚拟机 `curl … | bash` 并把完整日志 POST 回来，比截图可靠得多。
 
 ## 附录：用模拟器复验浏览器半边
 

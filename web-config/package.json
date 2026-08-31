@@ -1,0 +1,26 @@
+{
+  "name": "kingcode-web-config",
+  "version": "0.1.0",
+  "description": "KingCode 跨机配置面：凭证桥（节点半侧）+ 设置页里的「KingCode」分区（浏览器半侧）",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./client": {
+      "default": "./client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
