@@ -73,28 +73,128 @@
     timeoutMs: 120000
     maxTimeoutMs: 600000
 
-# agent 骨架一揽子：llm/session/system-prompt/tools/skill/agent 注册表/goal/
-# jobs/tool-bash/AGENTS.md 装载/agent-loop（demo 包，正式发行时可按其
-# README 展开为自组 bundle）。agents 留空——headless runner 自建 agent。
-- id: agent-spine
-  name: '@deepseek-ai/dsh-agent-spine-demo'
+# ── agent 骨架（原 @deepseek-ai/dsh-agent-spine-demo 的逐行展开）──────────────
+# 上游在 0.1.2-alpha.3 里删掉了 agent-spine-demo（`refactor(bundle): remove the
+# agent spine demo`，2026-08-26）。它本来就在 examples/ 下、README 明说非产品
+# API，所以这不是回归——是路线图里「展开为自组正式 bundle」那条被按了快进键。
+#
+# 下面这一组 = 该包 apply() 在 KingCode 这份 config 下**实际会 ctx.plugin 的全部
+# 条目**，逐条对应（源：0.1.0-rc.6 的 lib/index.js，最后一个还带它的版本）。
+# 两处按 config 分支跳过的没有展开：
+#   · goals —— 根树没配 goals，spine 就不挂 goal / goal-round-driver / tool-goal；
+#   · toolJobs: false —— 不挂 tool-jobs。但 jobs-local **注册表本身仍要挂**：
+#     tool-bash 用 ctx.get 解析它，缺席时 run_in_background 会答「后台作业不可用」。
+# skills 保持开（spine 默认 enabled: true），所以 skill / skill-filesystem /
+# tool-skill 三行都在。
+#
+# dshHome 三处都不写：spine 原本 resolveDshHome(config.dshHome) 算一次再传给
+# skill-filesystem 与 shell-env；两者省略时各自回落到 $DSH_HOME，而
+# bin/kingcode.js 在 boot() 之前就把它钉成了 ~/.kingcode——同一个值，少一处能漂的副本。
+#
+# 展开的代价是这一组行的顺序与配置从此归本仓库维护；收益是 tools.mode（PTC）、
+# system-prompt 的 toolOrder、session-title 的三个上限这些原先被 spine 的
+# Config 交集挡住的旋钮，现在都能直接写在对应行上。
+
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: session
+  name: '@deepseek-ai/dsh-session'
+
+# 三个上限照抄 spine 的 EXAMPLE_SESSION_TITLE_CONFIG（它的默认值就是这三个数）。
+# 只挂 session-title 不挂 session-title-first-prompt-llm：一次性 CLI 不需要为
+# 起标题再花一次模型调用，回落标题（取首条提示的前几个词）足够。
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
   config:
-    agents: []
-    workspaceContext:
-      maxBytes: 65536
-    # 后台执行面在工具层整体关闭：一次性 CLI 退出时会 dispose 整棵树，树外
-    # 存活的工作必然被带走。与其让 persona 去劝模型别用，不如让参数与工具
-    # 根本不出现在 schema 里——这个状态就在结构上无法产生。详见 AGENTS.md。
-    toolBash:
-      enableRunInBackground: false
-    toolJobs: false
-    # 身份留在这里（deployment:persona 这个 section 名被 config 占死）；
-    # 工作纪律在 plugins/prompt-sections.js，避免三份 persona 副本各自漂移。
+    fallbackMaxWords: 5
+    fallbackMaxBytes: 40
+    maxTitleBytes: 80
+
+# 身份句留在这里（`deployment:persona` 这个 section 名被本行的 config 占死）；
+# 工作纪律在 plugins/prompt-sections.js，避免三份 persona 副本各自漂移。
+# 两个 include* 是 spine 原本传的默认值 true，展开后写明。
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    includeHarnessIdentity: true
+    includeRuntimeContext: true
     persona: |
       You are KingCode, an expert coding agent powered by the {{model}} model.
       Your working directory is {{cwd}}.
 
       Respond in the language the user uses.
+
+# 工具注册表。mode 留默认 native——PTC（上游 0.1.2-alpha.1 把 Code Mode 连同
+# `mode: 'code'` 一起改名成 `ptc`）要另挂 dsh-code-runtime-worker-thread 才有意义，
+# 本树没挂，写了也只会让工具改走 run_code 而没有运行时。
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent'
+
+# `llm/retry` 的退避策略执行者。它在场是 model-failover 那行有意义的前提：
+# 熔断跳模型，是跳在这一层的重试之上。
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
+# 后台作业注册表。工具面（tool-jobs）不挂，见本节开头。
+- id: jobs
+  name: '@deepseek-ai/dsh-jobs-local'
+
+# 不变量注册表 + 四个订阅者。spine 无条件挂这五行，展开照搬：它们是
+# fail-loud 的一部分，缺了就是「状态坏了但没人喊」。
+- id: invariants
+  name: '@deepseek-ai/dsh-invariants'
+
+- id: invariant-session
+  name: '@deepseek-ai/dsh-session/invariant'
+
+- id: invariant-agent
+  name: '@deepseek-ai/dsh-agent/invariant'
+
+- id: invariant-scope
+  name: '@deepseek-ai/dsh-scope/invariant'
+
+- id: invariant-agent-loop
+  name: '@deepseek-ai/dsh-agent-loop/invariant'
+
+# bash 工具的环境（把 DSH_HOME 等变量送进模型的 shell）
+- id: shell-env
+  name: '@deepseek-ai/dsh-shell-env'
+
+# 后台执行面在工具层整体关闭：一次性 CLI 退出时会 dispose 整棵树，树外
+# 存活的工作必然被带走。与其让 persona 去劝模型别用，不如让参数与工具
+# 根本不出现在 schema 里——这个状态就在结构上无法产生。详见 AGENTS.md。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  config:
+    enableRunInBackground: false
+
+# AGENTS.md / CLAUDE.md 装载
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# 具体的 agent 循环。agents 留空——headless runner 自建 agent。
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []
 
 # root 必须随 compression 一起切：同一 root 下明文与 zstd 会话不能混放，混了
 # 后端 fail-loud 拒启（错误信息也不指向解法）。只要跑过一次 DSH_SNAPSHOT=1，
@@ -190,6 +290,19 @@
     backgroundMode: one-shot
     enableRunInBackground: false
     maxDepth: 1
+    # 只读探索者钉在 flash：它干的是 read/glob/grep/lsp 加一段复述，不需要 pro 的
+    # 推理预算，而它恰恰是最容易被叫很多次的那个工具。省的是钱与首字延迟，不是
+    # 判断力——探索结果以文本回给父代理，结论仍由 pro 做。
+    # 与 model-failover 那行同款理由：同一把 DEEPSEEK_API_KEY、同一条路由，
+    # 降档不引入新依赖。
+    #
+    # agentOptions 是**按实例固定的部署侧默认值**，与「模型自选路由」是两回事：
+    # 后者（上游 list_subagent_models + provider/model/reasoning_effort 参数）要
+    # Host 侧的 subagent-model-selection 设置开关，headless 这棵树上根本没有那层。
+    # 这里写死，模型看不见也改不了。
+    agentOptions:
+      provider: deepseek-official
+      model: deepseek-v4-flash
     toolFilter:
       # 必须跟着 LSP 三行的开关走：tools.restrict() 对未知工具名是硬失败
       # （dsh-tools「names unknown global tool」），KINGCODE_LSP=0 时若还列着
@@ -227,6 +340,13 @@
   name: '@deepseek-ai/dsh-spill-local'
   config:
     root: './.kingcode/spill'
+    # 上游 0.1.2-alpha.1 给这个后端加了「激活后跑一趟清扫」（`feat(spill-local):
+    # one-shot startup cleanup for local spill files`）：没有定时器、没有守护进程，
+    # 就是启动时扫一遍 root，删 mtime 早于 now − cleanupPeriodDays 的普通文件，
+    # 再把空的 session 目录收掉。一次性 CLI 正是它设计时想的那个形态。
+    # 默认就是 30，写出来是因为**它改变了既有行为**：在此之前 ./.kingcode/spill
+    # 是只涨不跌的。0 = 关掉。
+    cleanupPeriodDays: 30
 
 # 工具调用超时的执行者：glob/grep/web 等在 ToolDefinition 上声明的 timeoutMs
 # 全靠它兑现——没有它整棵树没有任何 tools/execute 包装器，声明形同虚设。

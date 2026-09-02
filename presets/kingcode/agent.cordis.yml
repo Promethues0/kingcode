@@ -9,8 +9,16 @@
 #   ② 挂本仓库的 prompt-sections（关掉一次性 CLI 的两段，开 Web 取舍段）；
 #   ③ 挂本仓库的 env-context（git: false——一个 dsh 进程服务多个工作区，
 #      process.cwd() 不是会话的工作区，git 行只会说错话）。
-# 其余行**逐行照抄** <dsh>/config/agent-presets/standard/agent.cordis.yml（0.1.0-rc.6），
-# 升级 dsh 时对照那份同步，别在这里自己发明工具面。
+# 其余行**逐行照抄**随 dsh 发行的 standard preset，升级 dsh 时对照那份同步，别在
+# 这里自己发明工具面。**它的路径在 0.1.2-alpha 变了**（preset 从 CLI 的 config/ 挪进了
+# 自己的包），现在是：
+#   <dsh>/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml
+# 对照方式（零依赖，注释与空行都滤掉，剩下的差异就应该只有上面那三处叠加）：
+#   STD=~/.local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml
+#   diff -u <(grep -vE '^\s*#|^\s*$' "$STD") <(grep -vE '^\s*#|^\s*$' presets/kingcode/agent.cordis.yml)
+# 本文件当前对齐到 **0.1.2-alpha.3**（相对 0.1.0-rc.6 跟进了四处：新增 command-goal 行、
+# 主 spawn 子代理加 modelSelectionSettings、codex/claude-code 两行的
+# enableRunInBackground 换成 backgroundMode: one-shot、tool-web 的 fetch 翻 true）。
 #
 # 路径解析（dsh-agent-presets README「How a preset's rows resolve」）：包名从 host
 # 组合（profile 目录）解析，相对路径从本 preset 目录解析。本仓库的两个插件用包名
@@ -92,6 +100,11 @@
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
+# 上游在 rc.6 之后把 `/goal` 这个人类命令挪进了 preset 层（服务与 session 驱动仍在
+# host 面，Gateway 要能解析它们）。跟着抄——少了它，Web 里的斜杠菜单没有 /goal。
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
@@ -155,11 +168,18 @@
     - id: tool-subagent-list-agents
       name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 
+    # modelSelectionSettings 是上游 0.1.2-alpha.1 加在**主 spawn 实例**上的开关
+    # （`feat(subagent): authorize selectable child models`）：开了之后，这个工具
+    # 才会多出 provider/model/reasoning_effort 三个可选参数、并注册 list_subagent_models。
+    # 它**默认不生效**——真正的权威是 Host 侧那个默认关闭的 subagent-model-selection
+    # 设置（Web 的 Plugins 页里配一份精确的 {provider, model} 允许清单），且只影响
+    # 此后新建的顶层会话。fork 实例故意不开：换路由会让继承来的前缀丧失 KV Cache 复用。
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: spawn
         toolName: subagent
+        modelSelectionSettings: true
         backgroundMode: continuable
 
     - id: tool-subagent-fork
@@ -175,7 +195,7 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: tool-subagent-claude-code
@@ -184,7 +204,7 @@
       config:
         provider: claude-code
         toolName: subagent_claude_code
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: workflow-worker-thread
@@ -211,8 +231,19 @@
   config:
     allowParallelInProgress: true
 
+# fetch 从 false 跟到 true，是照抄上游 standard preset 的现值。**但要知道它的确切
+# 含义**：上游在 0.1.2-alpha.1 里先加了 `dsh-web-fetch-approval-policy`（受限模式下
+# 逐次审批），又在同一版里用 `refactor(web): remove fetch approval policy` 撤掉了。
+# 撤的理由写在 docs/subsystems/web.md：公开地址校验 + 连接固定已经挡住 SSRF 目的地址，
+# 而逐次确认打断正常浏览却挡不住公开数据出站——模型本来就能用 shell 走同一张网。
+# 所以现在是「**所有沙箱与审批模式下都暴露 web_fetch，不做逐次确认**」。
+#
+# 留着 true 的理由：一次性 CLI 那棵树本来就开着 web_fetch，关着反而让 Web 形态比
+# 自家 CLI 更严，两边说不一致的话。要收紧就把这里改回 false（模型立刻看不到这个
+# 工具），或者按上游的建议自己挂一个 `tools/pre-execute` 策略——照
+# plugins/command-guard.js 那个写法即可，那已经是同一条缝上的东西。
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
-    fetch: false
+    fetch: true
     searchTimeoutMs: 60000

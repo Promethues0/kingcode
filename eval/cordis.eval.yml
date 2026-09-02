@@ -59,25 +59,87 @@
     timeoutMs: 120000
     maxTimeoutMs: 600000
 
-- id: agent-spine
-  name: '@deepseek-ai/dsh-agent-spine-demo'
+# ── agent 骨架（原 dsh-agent-spine-demo 的逐行展开）─────────────────────────
+# 与根树同一组行、同一份注释理由（上游 0.1.2-alpha.3 删掉了那个 demo 包），
+# 唯一差异是下面的 [EVAL-DIFF ⑤]。改根树的这一节时对照同步本节。
+
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: session
+  name: '@deepseek-ai/dsh-session'
+
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
   config:
-    agents: []
-    workspaceContext:
-      maxBytes: 65536
-    toolBash:
-      enableRunInBackground: false
-    toolJobs: false
-    # [EVAL-DIFF ⑤] 关掉技能发现：默认根含 ~/.agents/skills 与 $DSH_HOME/skills，
-    # 本机个人技能（几十个）会被塞进每一次评测会话的上下文，评测口径不该被它污染。
-    # 根树不关——真实使用时 skill 是想要的能力。
-    skills:
-      enabled: false
+    fallbackMaxWords: 5
+    fallbackMaxBytes: 40
+    maxTitleBytes: 80
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    includeHarnessIdentity: true
+    includeRuntimeContext: true
     persona: |
       You are KingCode, an expert coding agent powered by the {{model}} model.
       Your working directory is {{cwd}}.
 
       Respond in the language the user uses.
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+# [EVAL-DIFF ⑤] 关掉技能发现：默认根含 ~/.agents/skills 与 $DSH_HOME/skills，
+# 本机个人技能（几十个）会被塞进每一次评测会话的上下文，评测口径不该被它污染。
+# 根树不关——真实使用时 skill 是想要的能力。展开成显式行之后，「关掉」就是
+# 这三行（skill / skill-filesystem / tool-skill）**整组不写**，比原来那个
+# `skills.enabled: false` 开关更直白。
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent'
+
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
+- id: jobs
+  name: '@deepseek-ai/dsh-jobs-local'
+
+- id: invariants
+  name: '@deepseek-ai/dsh-invariants'
+
+- id: invariant-session
+  name: '@deepseek-ai/dsh-session/invariant'
+
+- id: invariant-agent
+  name: '@deepseek-ai/dsh-agent/invariant'
+
+- id: invariant-scope
+  name: '@deepseek-ai/dsh-scope/invariant'
+
+- id: invariant-agent-loop
+  name: '@deepseek-ai/dsh-agent-loop/invariant'
+
+- id: shell-env
+  name: '@deepseek-ai/dsh-shell-env'
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  config:
+    enableRunInBackground: false
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []
 
 # [EVAL-DIFF ③] root 走环境变量注入（run.js 每次评测一个全新目录），兜底目录也与根树隔离
 - id: persistence
@@ -155,6 +217,12 @@
     backgroundMode: one-shot
     enableRunInBackground: false
     maxDepth: 1
+    # 与根树逐字一致（结构同步）。在 eval 里这一段是 no-op：[EVAL-DIFF ②] 已经
+    # 把整棵树钉死在 flash，父子同模型。也就是说 **eval 量不出这条改动的效果**，
+    # 它在这里只承担一件事：证明 agentOptions 这条路本身没把 explore 跑坏。
+    agentOptions:
+      provider: deepseek-official
+      model: deepseek-v4-flash
     toolFilter:
       # 必须跟着 LSP 三行的开关走：tools.restrict() 对未知工具名是硬失败
       # （dsh-tools「names unknown global tool」），KINGCODE_LSP=0 时若还列着
@@ -189,6 +257,8 @@
   name: '@deepseek-ai/dsh-spill-local'
   config:
     root: './.kingcode/spill'
+    # 与根树一致（上游 0.1.2-alpha.1 的启动清扫，默认 30，写出来是因为它改了既有行为）
+    cleanupPeriodDays: 30
 
 - id: timeout-policy
   name: '@deepseek-ai/dsh-tool-call-timeout-policy'

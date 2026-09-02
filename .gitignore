@@ -17,3 +17,6 @@ eval/runs/
 
 # rehearse-emulator.sh 的产物目录（截图与页面快照，不入库）
 rehearsal-*/
+
+# eval 树不设 KINGCODE_EVAL_SESSIONS_ROOT 时的兜底会话目录（eval/cordis.eval.yml）
+.kingcode-eval/

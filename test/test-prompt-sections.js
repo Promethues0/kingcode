@@ -9,7 +9,30 @@
  * 跑法：node test/test-prompt-sections.js（失败退出码 1）
  */
 
+import { readFileSync } from 'node:fs'
 import { apply, buildToolRouting, DEFAULT_CONFIG, SESSION_CONTRACT, DISCIPLINE, TOOL_ROUTING, WEB_ROUTING } from '../plugins/prompt-sections.js'
+
+/**
+ * 从 KingCode 的 agent preset 里读出 tool-web 那一行的 `fetch` 取值。
+ *
+ * 手写扫描而不是引 YAML 解析器：本仓库的测试一律零依赖裸 node，而且这里要的
+ * 只是「那一行的字面取值」——从 `- id: tool-web` 起、到下一个同级 `- id:` 止，
+ * 取第一个 `fetch:`。注释行跳过（`#` 开头），所以把取值写进注释骗不过它。
+ * @returns {string|undefined} 'true' / 'false'，找不到则 undefined。
+ */
+function presetToolWebFetch() {
+  const lines = readFileSync(new URL('../presets/kingcode/agent.cordis.yml', import.meta.url), 'utf8').split('\n')
+  const start = lines.findIndex(l => /^\s*- id: tool-web\s*$/.test(l))
+  if (start === -1) return undefined
+  const indent = /^(\s*)-/.exec(lines[start])[1].length
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s*#/.test(line)) continue
+    if (new RegExp(`^\\s{0,${indent}}- id: `).test(line)) return undefined
+    const hit = /^\s*fetch:\s*(true|false)\s*$/.exec(line)
+    if (hit) return hit[1]
+  }
+  return undefined
+}
 
 let failed = 0
 const check = (ok, label, extra = '') => {
@@ -116,7 +139,15 @@ check(offRouting !== undefined && !/\blsp\b/.test(offRouting.text), 'apply 把 l
 // Web 段的载荷：每条都对照 standard preset / web 组合树实况写，改没了就该有人知道
 check(WEB_ROUTING.includes('ask_user_question'), 'Web 取舍告诉模型可以向用户提问（standard preset 挂 tool-ask-user）')
 check(WEB_ROUTING.includes('plan mode'), 'Web 取舍提到 plan mode（standard preset 挂 plan-mode）')
-check(WEB_ROUTING.includes('web_fetch is not available'), 'Web 取舍如实说 web_fetch 关着（tool-web fetch: false）')
+// web_fetch 的开关与提示词必须同源。上游在 0.1.2-alpha.1 把 standard preset 的
+// tool-web `fetch` 翻成 true（同一版里它还加过又撤掉了逐次审批策略），KingCode 的
+// preset 跟着翻了——这两处从此必须一起动：提示词说「用不了」而工具在目录里，模型
+// 会照说的不用，白扔一个能力；反过来说「能用」而工具不在，就是一次响亮的
+// UNKNOWN_TOOL。所以这里直接去读 preset 的实际取值，而不是把 true 抄第二遍。
+eq(presetToolWebFetch(), 'true', 'preset 里 tool-web 的 fetch 取值（与上游 standard preset 同步）')
+check(WEB_ROUTING.includes('web_fetch retrieves') && !WEB_ROUTING.includes('web_fetch is not available'),
+  'Web 取舍如实说 web_fetch 开着（与 preset 的 fetch 取值一致）')
+check(WEB_ROUTING.includes('untrusted input'), 'Web 取舍把抓回来的网页正文标为不可信输入（开着 web_fetch 就必须说这句）')
 check(WEB_ROUTING.includes('60s') && WEB_ROUTING.includes('timeoutMs'), 'Web 取舍给的 bash 默认超时是 web 树 bash-sandbox 的 60s')
 check(WEB_ROUTING.includes('run_in_background') && WEB_ROUTING.includes('job_output'), 'Web 取舍覆盖了后台任务（standard preset 挂 tool-jobs）')
 check(!WEB_ROUTING.includes('one-shot') && !WEB_ROUTING.includes('no second turn'), 'Web 取舍里没有一次性 CLI 的话')
