@@ -7,12 +7,16 @@
  * 表现为「上游的 deepseek 鲸鱼、HARNESS 字标、『探索未至之境 预览版』全都露出来」，
  * 而**没有任何报错**。这类「语法合法但内容被截断」的失败，只有断言内容才拦得住。
  *
- * 守的是四件事：
- * ① BRAND_CSS 能被完整抽出来，且四类品牌覆盖规则一条不少（截断必红）；
- * ② 覆盖上游图形的选择器**不锚 DOM 层级**——真机上同版本 dsh 的前端会被重打包，
+ * 守的是五件事：
+ * ① BRAND_CSS 能被完整抽出来，且**留在 CSS 里的**那几类覆盖规则一条不少（截断必红）；
+ * ② 三处品牌图形（侧栏字标、侧栏字样、首页标记）已经改走官方 slot，占位注册一处
+ *    都不能少——它们从 CSS 挪走之后，原来那三条 `display: none` 断言就不再是判据了，
+ *    换成断言 slot 名与占位组件（dsh 0.1.0-rc.8 的 `feat(client): compose deployment
+ *    branding through slots`）；
+ * ③ 覆盖上游图形的选择器**不锚 DOM 层级**——真机上同版本 dsh 的前端会被重打包，
  *    `button > svg` 这种直接子元素选择器会安静失效（这是第二次事故的成因）；
- * ③ CSS 大括号配平（截断最典型的形状就是括号不配）；
- * ④ 插件契约：具名导出 name/inject/apply，且 apply 真的注入了 style 元素。
+ * ④ CSS 大括号配平（截断最典型的形状就是括号不配）；
+ * ⑤ 插件契约：具名导出 name/inject/apply，apply 真的注入了 style 元素、叠了 token 层。
  *
  * 跑法：node test/test-web-brand.js（失败退出码 1）
  */
@@ -35,20 +39,46 @@ check(backticks % 2 === 0, '反引号成对（奇数=某个模板字符串被截
 const m = SRC.match(/const BRAND_CSS = `([\s\S]*?)`\n/)
 check(m !== null, '能抽出 BRAND_CSS 模板')
 const css = m ? m[1] : ''
-check(css.length > 1200, 'BRAND_CSS 长度合理（截断后会骤减）', `${css.length} 字符`)
+// 门槛随着三条规则挪去 slot 而下调（旧值 1200 对应还有五类覆盖的年代）。
+// 留着这条断言的意义不变：截断会让它骤减到几十字符。
+check(css.length > 400, 'BRAND_CSS 长度合理（截断后会骤减）', `${css.length} 字符`)
 
-// 四类品牌覆盖，一条都不能少——每条都对应一处上游硬编码的品牌图形
-const REQUIRED = [
-  // 不再断言具体 viewBox：新版 BrandWordmark 的 includeMark 开关会让宽高比在
-  // 182:24 与 156:24 之间切换，钉死数值的选择器会再次落空（真机上复发过一次）。
-  [/button\[class\*="_brand"\] svg \{ display: none/, '侧栏 wordmark 遮罩（deepseek + HARNESS 字标）'],
-  [/_railFish/, '收起态的鲸鱼单标'],
-  [/_fishHitbox/, '首页鲸鱼'],
+// 留在 CSS 里的覆盖，一条都不能少。这三处上游没有开缝：_headlineText 与
+// _previewBadge 是 EmptyHero 直接渲染的两个 span（文案走 locale，而 locale 只支持
+// 注册新语言、不支持覆盖既有语言的词条），_heroGlow 里的蓝是写死在 SVG fill 上的。
+const REQUIRED_CSS = [
   [/_previewBadge/, '首页「预览版」徽章'],
   [/_headline/, '首页标题（探索未至之境）'],
   [/_heroGlow/, '输入框光晕里硬编码的 DeepSeek 蓝'],
 ]
-for (const [re, what] of REQUIRED) check(re.test(css), `覆盖规则在：${what}`)
+for (const [re, what] of REQUIRED_CSS) check(re.test(css), `覆盖规则在：${what}`)
+
+// ── ② 三处改走 slot 的品牌图形 ─────────────────────────────────────────
+// 这三条以前是 CSS 里的 `display: none !important` + ::before/::after。改走官方
+// slot 之后，判据也得跟着换：占住 slot 就是整段替换（kind: 'single'），所以不再
+// 需要藏上游的 fallback——反过来说，**注册没了就是上游品牌原样露出来**，和当年那次
+// 真机事故是同一种无声失败，所以这里逐个断言。
+const REQUIRED_SLOTS = [
+  ['sidebar.brand.mark', '侧栏 K 字标（展开态与收起态 rail 共用同一个 slot）'],
+  ['sidebar.brand.name', '侧栏 KingCode 字样'],
+  ['conversation.hero.brand.mark', '首页 Hero 的标记（原鲸鱼）'],
+]
+for (const [slot, what] of REQUIRED_SLOTS) {
+  check(SRC.includes(`ctx.slots.inject('${slot}'`), `等这个 slot 被声明：${slot}`)
+  check(new RegExp(`register\\(\\{ name: '${slot.replace(/\./g, '\\.')}' \\}, \\w+\\)`).test(SRC),
+    `占住 slot：${what}`)
+}
+check(/const inject = \['theme', 'slots'\]/.test(SRC), "inject 里有 slots（少了它 ctx.slots 是 undefined）")
+check(/const React = require\('react'\)/.test(SRC), 'React 从模块表 require（占 slot 要交 React 组件）')
+// 占位组件本身也可能被截断，且截断后仍是合法 JS——同一类无声失败。
+check(/function KMark\(/.test(SRC) && /function KWordmark\(/.test(SRC), '两个占位组件都在')
+check(/var\(--kingcode-mark-from\)/.test(SRC) && /var\(--kingcode-mark-to\)/.test(SRC),
+  'K 字标的渐变读的是 token（亮暗切换靠它，不再烤死两份颜色）')
+check(/'--kingcode-mark-from':/.test(SRC) && /'--kingcode-mark-to':/.test(SRC),
+  '那两个 token 真的在 TOKENS 里定义了（只 var() 不定义就是透明的 K）')
+check(/gradientUnits: 'userSpaceOnUse'/.test(SRC),
+  "渐变用 userSpaceOnUse（默认的 objectBoundingBox 会让竖笔盒宽为零、K 退化成「<」）")
+check(/React\.useId\(\)/.test(SRC), '渐变 id 每实例唯一（侧栏与首页同时挂着，id 是全文档作用域）')
 
 // ── ② 不许锚 DOM 层级 ──────────────────────────────────────────────────
 // 真机实测：同为 dsh 0.1.0-rc.6，全新 npm 安装解析到的子依赖更新、前端重打包后

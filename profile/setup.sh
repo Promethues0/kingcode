@@ -84,12 +84,16 @@ cp "$REPO/profile/cordis.patch.yml" "$PROFILE/cordis.patch.yml"
 # 装品牌层。-w 是必需的：pnpm 会把 profile 目录视作 workspace root
 dsh plugin --profile "$PROFILE_NAME" add -w "$REPO/web-brand"
 
-# 装跨机配置面。**装 ≠ 启用**：dsh plugin add 只是 pnpm link，配置面要靠
-# deploy/harmonyos-pc/credential-bridge.patch.yml 显式挂（它是个写凭证的入口，
-# 默认该是「没有」）。而它必须先装好，那个覆盖层才解析得到包名。
-# 一并装它的浏览器半侧：client bundle 的发现走 ctx.loader.entries()——
-# 没挂进配置树就不会 serve，所以本机 localhost 上不会平白多出一个空分区。
-dsh plugin --profile "$PROFILE_NAME" add -w "$REPO/web-config"
+# 这里曾经还装一个 web-config（跨机凭证桥）。它存在的唯一理由是上游把
+# credentials.* / settings.* / llm.discoverModels 钉死在 loopback（PRIVILEGED_METHODS），
+# 跨机形态下那几栏一律 403、填 key 无路可走。dsh 0.1.2-alpha.1 的
+# `fix(web): authenticate the browser Host API` 把那份名单整段删掉，换成了每进程
+# launch token 换签名 cookie 的统一认证——跨机现在直接用 dsh 自带的 Models 页填 key。
+# 桥连同它的覆盖层、两个测试一起退役了。
+#
+# 升级路径要注意：**老 profile 里还 link 着这个包**。重跑本脚本不会把它摘掉
+# （dsh plugin add 只加不减），但也无害——没有覆盖层挂它，它就不进配置树。
+# 想彻底清掉就手工 `dsh plugin --profile kingcode remove kingcode-web-config`。
 
 # 把仓库本身 link 成 profile 里的包 `kingcode`：preset 的 agent.cordis.yml 用
 # `kingcode/plugins/<x>.js` 引用本仓库插件（preset 行的包名从 profile 目录解析，

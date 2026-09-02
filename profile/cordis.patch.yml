@@ -64,21 +64,24 @@
     - id: kingcode-brand
       name: 'kingcode-web-brand'
 
-# ── 不安全上下文垫片 ────────────────────────────────────────────────────────
-# 只在「浏览器和服务不在同一台机器上」时才有意义，但挂着零代价：安全上下文里
-# （Mac/Win 客户端、本机 localhost）垫片自己整段跳过。
+# ── 不安全上下文垫片：已删除（上游从 0.1.2-alpha.1 起自己解决了）────────────────
+# 这里原本挂着 plugins/insecure-context-shim.js，补的是「明文 HTTP + 非 loopback
+# 主机 = 浏览器判定为 insecure context，`crypto.randomUUID` 不存在」，而 dsh 客户端
+# 每发一条 RPC 都要用它铸 rpcId——症状是页面 200、品牌正常、没有任何报错横幅，
+# 工作区永远停在「正在加载中」。
 #
-# 治的是什么：明文 HTTP + 非 loopback 主机 = 浏览器判定为 insecure context，
-# `crypto.randomUUID` 在这种上下文里不存在（规范给它打了 [SecureContext]），
-# 而 dsh-client-connection 每发一条 RPC 都要用它铸 rpcId。症状是页面 200、
-# 品牌正常、没有任何报错横幅，工作区永远停在「正在加载中」——最坏的那种失败。
-# 详见 plugins/insecure-context-shim.js 头注释与 deploy/harmonyos-pc/README.md。
+# 上游在 0.1.2-alpha.1 用 `feat(util): mint UUIDs without crypto.randomUUID in every
+# context` 收编了全部调用点（新包 @deepseek-ai/dsh-util-crypto 走 getRandomValues），
+# 并加了一条全仓 no-restricted-properties lint 把将来的调用者也挡在门外——它的措辞
+# 就是「browsers withhold crypto.randomUUID outside secure contexts (plain-HTTP LAN
+# pages)」，和我们当年写的头注释是同一个场景。
 #
-# 包名 `kingcode` 由 setup.sh 的 `dsh plugin add -w $REPO` link 进 profile，
-# 与 preset 里引用仓库插件是同一条路径（根 package.json 无 exports 字段）。
-- insert:
-    - id: kingcode-insecure-context-shim
-      name: 'kingcode/plugins/insecure-context-shim.js'
+# 删之前实测过两道（2026-09-01，dsh 0.1.2-alpha.3）：① 静态扫前端 dist 的 25 个 JS
+# 加 59 个插件 client 半侧，`crypto.randomUUID` 零命中；② 在真实页面里把
+# crypto.randomUUID 换成计数器，跑一轮收起/展开侧栏 + 开关设置面板（全走 RPC），
+# 调用次数 0。**还剩一条上游没治**：`navigator.clipboard` 同样是 secure-context
+# 门槛 API，跨机访问时复制按钮仍然失效（不影响会话本身），见
+# deploy/harmonyos-pc/README.md。
 
 # ── 工作纪律段（plugins/prompt-sections.js）—— 不在这层挂，挂在 preset 里 ──────
 # 纪律段与身份一样属于 agent 作用域的事：挂在这层会落到每个 preset 与每个子代理上，
