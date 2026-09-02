@@ -74,12 +74,44 @@ node-pty 用本机 clang 现编（Harmonybrew 没有 llvm/clang formula，`ohos-
 本机、壳连 `127.0.0.1`，loopback 是安全上下文。**仍然需要**的是浏览器会话认证那一步
 （token → cookie 对 loopback 也不豁免，见 `deploy/harmonyos-pc/README.md` 闸④）。
 
+## B 级（Web 形态原生 + 鸿蒙壳连 127.0.0.1）——2026-09-02 深夜进展
+
+全局 dsh alpha.3 在 HiShell 里装通并 boot 成功，鸿蒙壳（com.kingcode.client）连 `http://127.0.0.1:3081/?token=…`
+加载出完整工作区（K 标与字标、侧栏、预设 KingCode、设置 → 模型页显示 DeepSeek「API 密钥已配置」）。
+还没走到「选工作区 → 发消息」那一步就因额度停下，见文末「续跑起点」。
+
+在 A 级五处补丁之外，B 级多出四件：
+
+| 事 | 真机事实 | 做法 |
+|---|---|---|
+| 安装 | `npm i -g @deepseek-ai/dsh@0.1.2-alpha.3` 会在 koffi 的 postinstall 上失败 | `--ignore-scripts` 装完，再 `cd ~/.harmonybrew/lib/node_modules/@deepseek-ai/dsh && CC=clang CXX=clang++ npm rebuild node-pty` |
+| sharp | `dsh-attachment-local` 加载期 require sharp；设备上 `npm install @img/sharp-wasm32@0.35.4` 回 404 | 从开发机全局树打包 `@img/sharp-wasm32` + `@emnapi/runtime` + `tslib` 三个目录（tar 时路径写 `./@img/...`，裸 `@` 会被 bsdtar 当归档指令）解到全局 node_modules |
+| 补丁 | 全局树多 `dsh-attachment-local` 的 link() 与 `dsh-win32-process` 加载期的两个结构体大小断言 | `patch-node-modules.sh --root <全局 node_modules>`（桩里带大小表） |
+| **profile 包解析** | 起服务报 `Cannot find package 'kingcode-web-brand'`——`cordis-plugin-loader` 靠 `--expose-internals` 或 `node-addon-require-builtin` 拿 Node 内部加载器来解析 profile 里的包，后者没有 openharmony 构建，退化后 profile 包解析不到（09-01 那次也是这个） | **用 `node --expose-internals <dsh 的 bin.js> --profile kingcode --port 3081 --no-open` 起**，profile 包立刻解析到 |
+
+起服务的完整命令（在 HiShell 里，仓库根目录）：
+
+```sh
+. deploy/harmonyos-native/env.sh
+export DSH_PERMISSION_MODE=danger-full-access        # sandbox-local 对未知平台 fail-closed，bash-sandbox 在这个模式下直接放行
+bash profile/setup.sh                                # 只需一次：profile + preset + link 品牌层与仓库，落在 $DSH_HOME/profiles/kingcode
+nohup node --expose-internals "$(readlink -f "$(command -v dsh)")" --profile kingcode --port 3081 --no-open > ~/kc-web.log 2>&1 &
+grep 'dsh web:' ~/kc-web.log                          # 带 token 的地址；壳里首次用它，之后靠 cookie
+```
+
+curl 走过的链：`GET /` 401 → `GET /?token=…` 303 + Set-Cookie → 带 cookie `GET /` 200、`/api/agentPresets/list` 到达网关、
+`/favicon.svg` 200、`<title>KingCode</title>`（品牌层 host 半侧生效）。壳里第一次进页面底部有「连接异常」，点一次重连
+（页面重载、弹上游「内测声明」点「继续」）后消失，`/proc/net/tcp` 里能看到多条到 :3081 的 loopback 连接。
+
+**续跑起点**：壳里点「选择工作区」→「编辑路径」，路径框是 dialog 里 bounds `[637,557][1747,596]` 那个 textField
+（不是 `[583,518]` 的搜索框），填 `/storage/Users/currentUser/kingcode` → 回车 →「打开」；工作区选上后输入框才变成可编辑的
+textbox，再发一条要用 bash 工具的消息。驱动手法：`uitest uiInput text '<文字>'`（不带坐标）、回车 `keyEvent 2054`、
+全选删除 `keyEvent 2072 2017` + `2055`、`dumpLayout -b com.kingcode.client` 取 bounds。
+
 ## 未做 / 未验
 
-- B 级（Web 形态原生 + ArkWeb 壳连 127.0.0.1）：全局 dsh 树多三处——`dsh-sandbox-local` →
-  `dsh-sandbox-windows-acl` 也静态 import koffi，且 sandbox-local 会做 `STARTUPINFOW` 布局探测，
-  本桩过不了（09-01 实测 `layout mismatch: koffi computed undefined`）；`dsh-attachment-local`
-  的 `link()`；sharp 要 `@img/sharp-wasm32`。另需 `DSH_PERMISSION_MODE=danger-full-access`。
+- B 级还差最后一步：壳里选工作区、发一条真消息（见上「续跑起点」）；「连接异常」首次出现的原因未查（重连后消失）；
+  ArkWeb 是否跨应用重启持久化 cookie 未验。
 - 从零 `npm ci --ignore-scripts` 的顺序未复跑。
 - 本地编译的 `.node` 在这台机器上能 dlopen（node-pty 已证）；别的套件记录的 Merkle 签名要求
   没有在这里遇到。
