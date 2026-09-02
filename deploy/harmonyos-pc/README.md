@@ -42,9 +42,9 @@ npm test                                                   # 自检，不花模�
 ```
 
 **更新**：`git pull` 之后必须重跑 `./profile/setup.sh`——profile 里的补丁层与 preset 是
-setup.sh **拷**进去的，光 pull 不重跑，跑的还是上一版的身份句、预设与垫片。
+setup.sh **拷**进去的，光 pull 不重跑，跑的还是上一版的身份句与预设。
 
-> `install.sh` 开跑前会自查这份代码含不含本次交付（`deploy/`、垫片、挂垫片的
+> `install.sh` 开跑前会自查这份代码含不含本次交付（`deploy/`、挂了插件的
 > `cordis.patch.yml`、指向 `~/.kingcode` 的 `setup.sh`），缺哪样都会在 `npm ci` **之前**
 > 停下并说清原因——clone 只拿得到已提交的东西，这一条挡的就是「装完一切正常，
 > 直到宿主访问时工作区转圈」。
@@ -58,7 +58,8 @@ Web 形态跑在虚拟机里，浏览器在**鸿蒙宿主**上。这条链路上
 |---|---|---|
 | ① bind 地址 | 宿主连不上（connection refused） | 绑 `0.0.0.0`。**不能用 `--host 0.0.0.0`**，dsh 主动拒绝它并退 1；只能用 `bind-all.patch.yml` 覆盖 `webserver` 行。`kingcode-web.sh` 默认就带 |
 | ② `/api` 信任栅栏 | 页面 200、UI 完整、**工作区永远转圈**；控制台里 `/api` 全 403 | 绑 0.0.0.0 时 dsh 会在**启动那一刻**把本机所有非 internal IPv4 自动加进信任名单，所以按虚拟机 IP 访问是自动过的。IP 变了要重启服务 |
-| ③ secure context | 同样是页面 200、UI 完整、工作区转圈；设置里写着 `crypto.randomUUID is not a function` | 明文 HTTP 到非 loopback 地址 = 浏览器判定不安全上下文，`crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId。**KingCode 自带垫片**（`plugins/insecure-context-shim.js`），profile 里已挂上，不需要你做任何事 |
+| ③ secure context | 历史闸门：曾经是页面 200、UI 完整、工作区转圈，设置里写着 `crypto.randomUUID is not a function` | 明文 HTTP 到非 loopback 地址 = 浏览器判定不安全上下文，`crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId。**dsh 0.1.2-alpha.1 起上游自己解决了**（`dsh-util-crypto` 收编全部调用点 + 全仓 lint），KingCode 那个垫片已删，这一闸不再需要你做任何事 |
+| ④ 浏览器会话 | 页面直接 401 / 一片空白 | 0.1.2-alpha.1 起整个 Host API 要一枚会话 cookie。用就绪行里带 `?token=…` 的地址开一次即可，cookie 有效期 30 天；服务每次重启换一枚新 token |
 
 **跨机访问下这些是正常态，不是故障**：设置面板里 `/api/settings.describe` 报 403、
 凭证页与模型发现不可用、预设的读取/复制/删除转圈——上面第三段说的「配置面钉死
@@ -73,21 +74,21 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
   http://<虚拟机IP>:3081/api/agentPreset.list
 ```
 
-`200` = 栅栏放行（那么转圈就是③，检查垫片有没有挂上）；`403` = 栅栏拦了（是②）；
+`200` = 栅栏放行；`401` = 没有会话 cookie（是④）；`403` = 栅栏拦了（是②）；
 连不上 = ①。`./kingcode-web.sh status` 已经把这条探针内建了。
 
-dsh 升级、垫片或预设改动之后，用 `./rehearse-emulator.sh` 在开发机上十分钟复验这半边：
+dsh 升级、品牌层或预设改动之后，用 `./rehearse-emulator.sh` 在开发机上十分钟复验这半边：
 它把上面这些探针加上「DevEco 2in1 模拟器真开页面 → 截屏取证 → lsof 查 WS 下行」串成
 一条命令，机器验不了的只剩肉眼看一眼截图里工作区有没有数据。
 
-**垫片治不了的两样**：
+**上面那些都通了，仍然治不了的两样**：
 
-1. 跨机访问时 `settings.*`、`credentials.*`、`agentPreset.read|copy|remove`、
-   `llm.discoverModels` 这一整个配置面被上游**钉死在 loopback**，一律 403。所以
-   **API key 必须在虚拟机侧落盘**，不能在宿主浏览器的 Models 页里填。
-2. `navigator.clipboard` 同样是 secure-context 门槛 API（dsh 的复制按钮用它）。垫片
-   没治它，也不该治。后果只是复制按钮失效，会话本身不受影响。全量扫过 dsh 送进
-   浏览器的 73 个 JS，被 secure context 挡住的就这两样。
+1. ~~跨机时整个配置面被钉死在 loopback~~——**这条已作废**（dsh 0.1.2-alpha.1 删掉了
+   `PRIVILEGED_METHODS`）。跨机现在可以在宿主浏览器的 Models 页里直接填 key。
+2. `navigator.clipboard` 同样是 secure-context 门槛 API（dsh 的复制按钮用它），
+   **上游至今没治**（`ui-primitives/src/clipboard.ts` 仍直接调它）。后果只是复制按钮
+   失效，会话本身不受影响。这是明文 HTTP 跨机访问下唯一还留着的 secure-context 限制
+   ——另一样（`crypto.randomUUID`）上游已经在 0.1.2-alpha.1 收编。
 
 **安全**：绑 0.0.0.0 等于把一个能执行任意命令的 agent 暴露给它所在的网络，而 dsh
 自己在文档里写明「no TLS, no auth, no origin policy」。在 NAT 模式的虚拟机里，
@@ -110,8 +111,10 @@ dsh 升级、垫片或预设改动之后，用 `./rehearse-emulator.sh` 在开�
   `prebuilds/linux-arm64/pty.node`（真 aarch64 ELF），install 脚本探到预编译目录直接
   退 0，node-gyp 不跑；`module.exports` 键集合与 1.1.0 逐字相同
   （createTerminal/fork/native/open/spawn），上游 `dsh-subprocess-local@0.1.0-rc.8`
-  起也精确钉这一版。工具链现在只为第 7 步的**全局 `dsh@0.1.0-rc.6`** 存在：
-  `npm i -g` 不吃本仓库的 overrides，它树里的 `node-pty` 仍按 `^1.1.0` 解析到
+  起也精确钉这一版。**这条从 dsh 0.1.2-alpha.3 起也不再需要**：实测全局 dsh 树里的
+  node-pty 就是 1.2.0-beta.15、带 linux-arm64 预编译，两边都不编译了。
+  下面这段记的是 rc.6 时代为什么非要工具链不可——那时 `npm i -g` 不吃本仓库的
+  overrides，它树里的 `node-pty` 仍按 `^1.1.0` 解析到
   1.1.0（semver 区间撞不到预发布版），那版无 linux 预编译，必然现场编译。也没有
   绕的路：其 `scripts/prebuild.js` 只认包内 `prebuilds/<platform>-<arch>` 目录、
   没有任何指向外部预编译的环境变量（唯一认的 `npm_config_build_from_source` 方向
@@ -217,12 +220,12 @@ llm-deepseek:
 1. 页面 200，UI 完整；
 2. 品牌是 KingCode（web-brand 层在 ArkWeb 里生效）；
 3. `agentPreset.list` 探针 200（信任栅栏放行）；
-4. **工作区数据正常加载**——这条就是垫片在真 ArkWeb 里生效的证据：不安全上下文下
-   没有垫片，这里必然转圈；
+4. **工作区数据正常加载**——这条是「RPC 在真 ArkWeb 里跑通」的证据（历史上这里
+   正是不安全上下文那一闸的翻车点）；
 5. WebSocket 下行保持 ESTABLISHED；
 6. 预设选择器默认 KingCode。
 
-这验掉的是链路里「浏览器侧」的全部未知：ArkWeb 的行为是不是标准、垫片在真华为
+这验掉的是链路里「浏览器侧」的全部未知：ArkWeb 的行为是不是标准、认证与品牌在真华为
 浏览器里挂不挂得上。**没验掉的**：服务侧当时跑在 Mac 上，不在 openEuler 虚拟机里——
 所以「真机上宿主能否访问虚拟机端口」和 openEuler 侧的安装链路仍然只能在真机上验。
 模拟器结果不等于真机结果，别把这节当成后者。复验步骤见文末附录，
@@ -288,45 +291,53 @@ glibc 2.38、locale `C.UTF-8`、SELinux Disabled、sudo 免密可用、PID 1 是
    而同一段 CSS 的 `::before`/`::after` 照常生效，不报任何错。选择器只能锚组件自身的
    稳定属性（`viewBox`、类名后缀）。已修（见 `web-brand/client.js` 的 `BRAND_CSS`）。
 
-**跨机访问下「设置页大半打不开」是设计如此**，不是装坏了：同一台机器上实测
-`settings.describe` 从 `127.0.0.1` 返回 400（请求体缺字段——说明放行了），
-从 `172.16.105.2` 返回 **403**。开发机上按 LAN 地址复现过整页的样子：
+**「跨机时设置页大半打不开」这条已经作废（dsh 0.1.2-alpha.1 起）**。历史上确实如此：
+上游一份 `PRIVILEGED_METHODS` 名单把 `settings.*` / `credentials.*` /
+`agentPreset.read|copy|remove` / `llm.discoverModels` 钉死在 loopback，跨机一律 403，
+于是「通用设置」「模型」「插件」「Agent 预设」四栏在鸿蒙壳里全是降级态。
 
-| 设置页分区 | 跨机表现 |
-| --- | --- |
-| 通用设置 | 预设与权限两栏卡在「正在加载」/「不可用」，下面挂着 `transport failure for /api/settings.describe: HTTP 403` |
-| 模型 | 整页只剩一行红字「加载提供方目录失败」+ 一个「重试」按钮 |
-| 插件 / Agent 预设 | 同因 403 降级 |
-| **KingCode** | **正常**——它不走 `/api`，走自己的 `trusted-host` 通道 |
+`fix(web): authenticate the browser Host API` 把那份名单**整段删掉**，换成对整个
+Host API 一视同仁的浏览器会话认证。现在的两层是：
 
-**换模型不受影响**：模型选择器走 `llm.models` / `session.selectModel`，上游**故意**
-没把这两个钉进禁列（注释原文说 LAN 客户端的模型选择器合法地需要它）。真机验过
-跨机 `ok:true`，且换一次模型 `settings.yaml` 里就会长出 `agent-default-model` 段。
-所以换模型用**输入框上的模型选择器**，不要去设置页的「模型」分区。
+| 返回 | 含义 | 怎么办 |
+| --- | --- | --- |
+| **403** | Host/Origin 栅栏没放行（DNS rebinding 防线），**与方法名无关** | LAN IP 变过就重启服务——信任名单是启动那一刻的快照 |
+| **401** | 栅栏过了，但这个浏览器没有会话 cookie | 用就绪行里那条带 `?token=…` 的地址开一次，换到 cookie（有效期 30 天） |
+
+所以跨机现在四栏都是全功能的，填 key 也在「模型」页里做。
 
 ### 填 API key 的两条路
 
-**① 设置页里的「KingCode」分区（推荐）**——需要启动时带上凭证桥：
+**① 直接用 dsh 自带的「设置 → 模型」页（推荐）**——跨机也能用了。
+
+dsh 0.1.2-alpha.1 之前，`credentials.*` / `settings.*` / `llm.discoverModels` 被上游一份
+`PRIVILEGED_METHODS` 名单钉死在 loopback，跨机点开这几栏一律 403，所以本仓库写过一个
+凭证桥（`web-config/`）来补这一件事。`fix(web): authenticate the browser Host API`
+把那份名单**整段删掉**，换成了统一的浏览器会话认证（每进程 launch token 换一枚签名
+cookie）。现在跨机浏览器只要正常带着 cookie，配置面就是全功能的——桥、它的覆盖层
+`credential-bridge.patch.yml`、`KINGCODE_CREDENTIAL_BRIDGE` 这个开关都已经删除。
+
+在鸿蒙壳里开「设置 → 模型 → DeepSeek → 编辑」，填 key、保存即可。
+
+**② 在虚拟机侧落盘**（想完全不经浏览器时）：
 
 ```bash
-KINGCODE_CREDENTIAL_BRIDGE=1 ~/kingcode/deploy/harmonyos-pc/kingcode-web.sh restart
-```
-
-然后在鸿蒙壳里开「设置 → KingCode」，填 key、保存即可。这条路只写不读：
-分区永远不会显示已有的值，服务端也从不回传它（契约见 `web-config/index.js`）。
-`KINGCODE_CREDENTIAL_BRIDGE` 不是默认开的——它是个写凭证的入口，默认该是「没有」。
-
-**② 在虚拟机侧落盘**（不想开那条通道时）：
-
-```bash
-echo 'DEEPSEEK_API_KEY: sk-你的key' > ~/.kingcode/.credentials.yaml
+cat > ~/.kingcode/.credentials.yaml <<'YAML'
+version: 1
+refs:
+  DEEPSEEK_API_KEY: sk-你的key
+YAML
 chmod 600 ~/.kingcode/.credentials.yaml   # 组/其他位有权限会让 dsh 在 boot 期拒启
 ~/kingcode/deploy/harmonyos-pc/kingcode-web.sh restart
 ```
 
+**格式在 0.1.1-rc.1 变过**：从「一层扁平的 `名字: 值`」变成带 `version:` 与 `refs:`
+两节。老文件不用手改——boot 时上游会就地升级它（认得出的扁平布局整段搬进 `refs:`）。
+反过来不行：**升级过的文件，旧版 dsh 读不了**（会以 `the value for "version" … must be
+a string` 在 boot 期拒启）。所以别在同一个 `~/.kingcode` 上混用新旧两个版本的 dsh。
+
 启动服务的 shell 里若 `export` 过同名环境变量，它**赢过**文件（上游让它可见地只读，
-而不是静默遮蔽写入）。这时「KingCode」分区会显示「已配置（来源：env）」并说明
-在这里改不生效——上游的 `set` 也会直接拒绝，不会假装写成功。
+而不是静默遮蔽写入）。
 
 ## 待你在机器上验的
 
@@ -340,7 +351,7 @@ chmod 600 ~/.kingcode/.credentials.yaml   # 组/其他位有权限会让 dsh 在
 preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳连自家引擎，
 全部一次过。开发机（macOS）上另外验过的：脚本全部 shellcheck 干净、
 `kingcode-web.sh` 的 start/stop/restart/并发start/看门狗重启/端口被占时不谎报就绪
-都实跑过、垫片有 30+ 条断言的无头测试（外层 catch 那条用变异体验过覆盖真实）、
+都实跑过、
 浏览器半边在 HarmonyOS 6.0.2 模拟器的真 ArkWeb 里彩排过。
 
 ## 排障速查
@@ -351,22 +362,27 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
 | `npm ci` 竟然在编译 node-pty | 这份 lock 没带 overrides 那次提交（node-pty 应是 1.2.0-beta.15，带 linux-arm64 预编译） |
 | boot 报找不到 tsc | 用了 `--omit=dev`，或从别的机器拷了 node_modules |
 | boot 以退出码 1 拒启、提凭证权限 | `.credentials.yaml` 不是 0600 |
-| 页面能开、工作区一直转圈 | `/api` 403（信任栅栏）或 randomUUID（垫片没挂上）——用上面那条 curl 分辨 |
+| 页面 401 / 一片空白 | 这个浏览器没有会话 cookie。用就绪行里带 `?token=…` 的地址开一次即可（每次重启服务换一枚 token） |
+| 页面能开、工作区一直转圈 | `/api` 403（Host 信任栅栏，LAN IP 变过就重启服务）——用上面那条 curl 确认 |
 | 宿主连不上 | 没绑 0.0.0.0，或虚拟机 IP 变了 |
 | 服务关掉终端就没了 | 没走 `kingcode-web.sh start`（少了 nohup，SIGHUP 直接杀死 dsh） |
 | 服务起得来，但预设选择器里没有 KingCode、也没有默认项 | `$DSH_HOME/.agent-presets/kingcode` 不在（没跑 `profile/setup.sh`）。这是个**不响的失败**：服务照常起、品牌照常是 KingCode。`kingcode-web.sh start` 已经会在启动前拦住它 |
 | CLI 报 MISSING_CREDENTIAL，但你记得填过 key | key 还在老的 `~/.dsh/.credentials.yaml` 里。跑一次 `profile/setup.sh` 会搬过来（它不需要 dsh/pnpm 也能走到搬家那一步） |
 | 模型请求半天没动静 | 重试退避，最坏 30 分钟；先确认 `api.deepseek.com` 通（401 即通）。可压短，见「网络差时把静默压短」 |
 
-## 跨机配置面（web-config）的真机记录
+## 跨机配置面的真机记录（凭证桥时期，2026-08-31）
 
-2026-08-31 在真机上装通并逐项验过：28 条断言全绿，含完整写入路径
+> 这一节记的是**凭证桥（`web-config/`）时期**的真机验证。桥本身已经随
+> dsh 0.1.2-alpha.1 退役（理由见上面「填 API key 的两条路」），但下面这五条
+> 是鸿蒙真机本身的性质，与桥无关，**依然成立**，所以整节留着。
+
+当时在真机上装通并逐项验过：28 条断言全绿，含完整写入路径
 （set → configured:true → unset → configured:false）、四条信任栅栏分支
 （伪造 Host / 跨源 Origin / sec-fetch-site: cross-site / GET 方法 / 缺 content-type），
-以及 setup.sh 重装后对既有面（品牌层、垫片、preset、`/api`）的回归。
-自检用的是一次性假值，验完即清；引擎日志里只留字符数，**没有任何密钥值**。
+以及 setup.sh 重装后对既有面的回归。自检用的是一次性假值，验完即清；引擎日志里只留
+字符数，**没有任何密钥值**。
 
-**只有真机才会暴露的五件事**：
+**只有真机才会暴露的五件事（与桥无关，仍然成立）**：
 
 1. **上游「模型」页跨机时的报错措辞和浏览器里不一样**。开发机上按 LAN 地址访问看到的是
    `transport failure for /api/settings.describe: HTTP 403`；鸿蒙壳里看到的却是
@@ -383,11 +399,11 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
 5. **点输入框时 ArkWeb 会整片黑一下**，是输入法弹出时的瞬时重绘，不是崩溃
    （`ps` 里 `:render` 进程都还在），下一次点击就恢复。别当成 bug 去查。
 
-**凭证桥已设为常开**：虚拟机的 `~/.bashrc` 末尾加了 `export KINGCODE_CREDENTIAL_BRIDGE=1`
-（改前备份在 `~/.bashrc.bak-kingcode`）。验过：用不带任何显式变量的登录 shell 重启，
-引擎命令行里自动带上 `--patch …/credential-bridge.patch.yml`，通道回 `ok:true`。
-临时想不带桥启动用 `KINGCODE_CREDENTIAL_BRIDGE=0 …/kingcode-web.sh restart`
-（启动器判的是 `= 1`，所以设成 0 就关）。
+**升级到 alpha 之后要在虚拟机上收的尾**：那台机器的 `~/.bashrc` 末尾还留着
+`export KINGCODE_CREDENTIAL_BRIDGE=1`（改前备份在 `~/.bashrc.bak-kingcode`）。
+这个变量现在没有任何读者，留着无害，但顺手删掉更干净。profile 里 link 的
+`kingcode-web-config` 包同理——没有覆盖层挂它就不进配置树，想彻底清掉用
+`dsh plugin --profile kingcode remove kingcode-web-config`。
 
 **远程驱动虚拟机终端的两个坑**（用 hdc + uitest 时）：
 
@@ -399,7 +415,7 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
 
 ## 附录：用模拟器复验浏览器半边
 
-将来 dsh 升级或垫片改动，不用等真机——DevEco 的 2in1 模拟器跑的是真 ArkWeb，
+将来 dsh 升级或品牌层改动，不用等真机——DevEco 的 2in1 模拟器跑的是真 ArkWeb，
 一条命令能把浏览器半边整个复验一遍：`./rehearse-emulator.sh`（机器能验的自动判，
 只留一张截图给肉眼）。下面是它背后的手工版，脚本坏了或要单步排查时用：
 
@@ -422,9 +438,8 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
    ```
 
 3. 判读口径（与「三道闸」一一对应）：
-   - **工作区数据加载出来了** = 垫片生效、`/api` 放行，浏览器半边整体通过；
+   - **工作区数据加载出来了** = 会话 cookie 有效、`/api` 放行，浏览器半边整体通过；
    - **只有页面没有数据**（UI 完整、工作区转圈）= 用「跨机访问」一节那条 curl 探针
-     分辨：`/api` 403 是信任栅栏（闸②，重启服务重采 IP）；200 则是
-     `crypto.randomUUID`（闸③，垫片没挂上——查 `git pull` 之后重跑过
-     `profile/setup.sh` 没有）；
+     分辨：`/api` 403 是 Host 信任栅栏（闸②，重启服务重采 IP）；401 是没有会话
+     cookie（闸④，用带 `?token=…` 的地址重开一次）；
    - **页面都打不开** = 没绑 0.0.0.0 或 IP 写错（闸①）。

@@ -72,7 +72,12 @@ DSH_HOME=~/.kingcode dsh --profile kingcode --port 3081
 - 什么都不做：`profile/cordis.patch.yml` 把 `agent-presets` 的组合层默认值改成了 `kingcode`，新会话默认就是它；
 - 想临时换别的，在 Web 新会话的预设选择器里选（已开始对话的会话不能换预设，这是上游规则）；`$DSH_HOME/settings.yaml` 的 `agent-presets.default` 是**设置层**，写了就盖过组合层，setup 脚本不替你写。
 
-preset 里用 `kingcode/plugins/…` 引用仓库插件，靠的是脚本把仓库本身 `dsh plugin add -w` 成 profile 里的包 `kingcode`：插件在仓库原位加载，与 CLI 同一份。升级 dsh 后对照 `<dsh>/config/agent-presets/standard/agent.cordis.yml` 同步工具面行。
+preset 里用 `kingcode/plugins/…` 引用仓库插件，靠的是脚本把仓库本身 `dsh plugin add -w` 成 profile 里的包 `kingcode`：插件在仓库原位加载，与 CLI 同一份。
+
+**升级 dsh 之后必须做的两件事**（这一节的坑在 0.1.2-alpha.3 升级时真踩过）：
+
+1. **重跑 `./profile/setup.sh`**。`profile/cordis.patch.yml` 是被**拷**进 `$DSH_HOME/profiles/kingcode/` 的，不是链接——仓库里删掉一个插件行、而安装处还留着老副本，下次起服务就是 boot 期 `ERR_MODULE_NOT_FOUND` 硬失败（响亮，但会让人以为是升级本身坏了）。删插件时还要顺手摘掉 profile 里的 link：`dsh plugin --profile kingcode remove <包名>`。
+2. **对照同步 preset 的工具面行**。上游 preset 的路径在 0.1.2-alpha 变了（从 CLI 的 `config/` 挪进了自己的包），现在是 `<dsh>/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`。对照办法写在 `presets/kingcode/agent.cordis.yml` 头注释里（一条 `diff -u` 命令，滤掉注释与空行后差异应当只剩那三处叠加）。
 
 ### KingCode 自己的 harness home
 
@@ -104,7 +109,7 @@ grep 回答「这段文字出现在哪」，`lsp` 回答「这个符号到底绑
 | 文件 | 做什么 | 用的官方缝 |
 |---|---|---|
 | `index.js`（node 半侧） | `<title>` → KingCode；接管 `/favicon.svg`（自绘 K 标）与 `/manifest.webmanifest` | `webServer.tapIndex()` + `webServer.register({kind:'exact'})` |
-| `client.js`（浏览器半侧） | 91 个 `--dsw-*` token 覆盖（亮/暗双套）+ 藏掉 deepseek 字标与鲸鱼、换 K 标与 KingCode 字样 | `ctx.theme.overrideTokens()` + 注入 `<style>` |
+| `client.js`（浏览器半侧） | 91 个 `--dsw-*` token 覆盖（亮/暗双套）+ 占住三个品牌 slot 换成 K 标与 KingCode 字样 + 兜住浏览器标题 | `ctx.theme.overrideTokens()` + `ctx.slots.register()` + 少量 `<style>` |
 | `tools/check-contrast.js` | WCAG 对比度 + 红绿色弱（Machado 1.0）ΔE 守卫 | — |
 
 **配色的源头是一处，但派生产物不止一处。** `client.js` 顶部的 `P` 常量块
@@ -134,6 +139,38 @@ python3 win/assets/make-ico.py win/assets/KingCode.ico \
 每帧数主色，别靠肉眼看图标缩略图。
 
 **改品牌文案**：`client.js` 的 `BRAND` 块（wordmark / headline 两个字符串）。
+
+**品牌图形走的是官方 slot，不再是 CSS 遮罩（dsh 0.1.0-rc.8 起）。** 上游在
+`feat(client): compose deployment branding through slots` 里开了一套具名 slot，
+它自己的 `dsh-client-ui-brand-official` 就是靠占同一批 slot 实现的，README 里把这条
+写成了唯一路径。KingCode 现在占三个：
+
+| slot | 换掉的东西 |
+|---|---|
+| `sidebar.brand.mark` | 侧栏左上角的标记（**展开态与收起态 rail 共用这一个 slot**） |
+| `sidebar.brand.name` | 侧栏字样 |
+| `conversation.hero.brand.mark` | 首页大标题前的标记（原来那条会游的鲸鱼） |
+
+占住即整段替换（`kind: 'single'`），所以不再需要 `display: none !important` 去藏上游
+的 fallback——这一步同时解决了历史上两次真机翻车（`button > svg` 因前端重打包落空、
+`BrandWordmark` 加了 `includeMark` 开关导致 viewBox 选择器落空）的**根因**：那两次都是
+在拿 CSS 猜别人的 DOM。
+
+**代价是 `client.js` 现在 `require('react')`**（上游把 react / react-dom /
+`dsh-client-ui-slots` / `dsh-client-ui-primitives` 共享进了冻结模块表），但**仍然不需要
+构建工具链**：不写 JSX，一律 `React.createElement`。
+
+**还留在 CSS 里的只剩两条**，因为上游确实没开缝：首页的 `_headlineText` 与
+`_previewBadge` 是 `EmptyHero` 直接渲染的两个 span（文案来自 locale，而 locale 只支持
+注册新语言、不支持覆盖既有语言的词条），以及 `_heroGlow` 里写死在 SVG `fill` 上的蓝。
+
+**浏览器标题要自己兜住。** dsh 0.1.0-rc.8 起产品名取自
+`process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')`（**构建期烤进前端 bundle**），
+而我们用的是上游预构建的 bundle——`DocumentTitle` 一挂载就会把 `index.js` 那边
+`tapIndex` 改好的 `<title>` 盖成上游的产品名。上游明说标题「不在槽位系统之内」，
+所以 `client.js` 挂了一个 `<title>` 的 MutationObserver，把最后那一截产品名换回
+KingCode（会话名照留）。判据是「不是我们的名字就换」，不写死上游那个字符串——
+它随构建而变。
 
 ## Mac 客户端
 
@@ -248,7 +285,8 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。命令
 两处**上游没写、不查一定踩**的坑，仓库里已经处理掉了：
 
 - **`--host 0.0.0.0` 会被 dsh 主动拒绝并退 1**（"intentionally not supported yet for safety"）。要让宿主访问得到，只能用覆盖层直接改 `webserver` 行——`deploy/harmonyos-pc/bind-all.patch.yml`，单独一个 opt-in 文件，**故意不写进 `profile/cordis.patch.yml`**：绑 0.0.0.0 等于把一个能执行任意命令的 agent 暴露给所在网络，那不该是 Mac/Win 上的默认值。
-- **明文 HTTP 到非 loopback 地址 = 浏览器判定为不安全上下文，`crypto.randomUUID` 不存在**，而 dsh 客户端每条 RPC 都要用它铸 rpcId。症状是页面 200、品牌正常、没有任何报错横幅，**工作区永远转圈**——最坏的那种失败。`plugins/insecure-context-shim.js` 走 `webServer.tapIndex`（与品牌层同一条官方缝）补上这个函数，安全上下文里整段跳过，所以 Mac/Win 与本机 localhost 零影响。
+- **不安全上下文（明文 HTTP 到非 loopback 地址）曾经让工作区永远转圈**：那种上下文里 `crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId，症状是页面 200、品牌正常、没有任何报错横幅。本仓库为此写过 `plugins/insecure-context-shim.js`。**dsh 0.1.2-alpha.1 起上游自己解决了**（`feat(util): mint UUIDs without crypto.randomUUID in every context` + 全仓 lint），垫片已删。仍然成立的是 `navigator.clipboard`：它同样卡 secure context，上游没治，跨机访问时复制按钮失效——不影响会话本身。
+- **跨机访问时的浏览器会话认证（0.1.2-alpha.1 起）**：`dsh web` 每进程打印一条带 `?token=…` 的地址，浏览器拿它换一枚签名 cookie（HttpOnly / SameSite=Strict / 30 天），之后整个 Host API 都认这枚 cookie。裸访问 → 401，Host 头不在信任名单 → 403。换来的是**配置面不再钉死在 loopback**：跨机也能在 Models 页里填 key。
 
 Node 的下限是**硬的 22.19.0**（会话压缩顶层具名导入 `node:zlib` 的 zstd API，缺了是链接期 SyntaxError；`pi-ai` 又自报 `engines >= 22.19`），而 openEuler 源里只有 20.x——`dnf install nodejs` 这条路堵死，脚本走 nodejs.org 官方 linux-arm64 tarball 并校验 SHA256。
 
@@ -310,19 +348,20 @@ node eval/run.js --update-baseline    # 把本次结果定为新基线（有 har
 
 ## 改造点地图（在哪儿动什么）
 
-- **人格/系统提示词**：`cordis.yml` 里 `agent-spine` 行的 `persona`（支持 `{{model}}`/`{{cwd}}` 模板）
+- **人格/系统提示词**：`cordis.yml` 里 `system-prompt` 行的 `persona`（支持 `{{model}}`/`{{cwd}}` 模板）
 - **默认模型**：`agent-default-model` 行（provider 路由 + model id；现为 `deepseek-official` / `deepseek-v4-pro`）
 - **加自定义工具**：照 `plugins/multi-edit.js`——具名导出 `name`/`inject`/`apply(ctx)`，`ctx.tools.register(defineTool({...}))`，再在 `cordis.yml` 加一行。注意：对象 schema 必须显式写 `additionalProperties`；render 必须承载模型所需的全量载荷
 - **接其他模型厂商**：OpenAI 兼容端点零代码——换 `@deepseek-ai/dsh-llm-pi-ai` 行，`providers` 里手工声明路由（`api: openai-completions` + `baseURL` + `models`）；自有协议才需要写 LlmAdapter
 - **权限门**：另写 hook 插件监听 `tools/pre-execute` waterfall，返回 `{kind:'deny'|'ask'}`；沙箱可换 `dsh-bash-sandbox` + `dsh-sandbox-policy`（参照上游 acp-agent 示例）
 - **接 MCP server**：不进根 `cordis.yml`，用独立树 `cordis.mcp.yml`（第一行 `cordis:include` 根树，之后每个 server 一行 `@deepseek-ai/dsh-mcp-client`，stdio 或 streamable-http；没有 servers 表），`kingcode --config cordis.mcp.yml "<task>"` 启用。工具名 `mcp__<serverName>__<rawName>`；仓库自带的 `test/fixtures/mcp-echo-server.js` 是示例行也是 `npm test` 的被测夹具（`mcp__echo__add`）。**务必 `failOnStartupError: true`**：server 起不来时 boot 以退出码 1 响亮失败；默认 `false` 在本 CLI 树里等于静默降级——dsh-mcp-client 的告警走 `ctx.logger`，而这棵树没有日志 sink，stderr 只能看到子进程自己的崩溃输出，模型会零工具作答。另外 server 的 inputSchema 只能用 dsh-tools 的关键字子集（带 `$schema` 的会被拒绝注册），server 挂起不退出时 boot 会等满 SDK 固有的 60s。Web/Mac/Win 形态走 `profile/cordis.patch.yml` 的 `insert`（dsh 安装自带 dsh-mcp-client），本仓库未做
-- **Code Mode**：需给 agent-spine 的 ToolRuntime 传 `tools: {mode: 'code'|'both'}` 并挂 `dsh-code-runtime-worker-thread`（注意：曾以为环境变量 `DSH_TOOLS_MODE` 可控，实测全 node_modules 无代码读它——mode 只来自 ToolRuntime 配置，该虚注释与死重条目已从 cordis.yml 移除）
+- **PTC（原 Code Mode）**：给 `cordis.yml` 的 `tools` 行传 `mode: 'ptc'|'both'` 并挂 `dsh-code-runtime-worker-thread`。上游 0.1.2-alpha.1 把这个特性从 Code Mode 改名为 PTC（programmatic tool calls），**`mode: 'code'` 不再是合法取值**；留在旧名上的只有 `run_code` 工具名和 durable 事件词表（`tool/code-dispatch*`，等 session 格式 v0→v1 迁移一起改）。关于 `DSH_TOOLS_MODE`：这个环境变量不是 dsh-tools 自己读的，是上游 headless/web **bundle 的 patch 层**用 `!!js process.env.DSH_TOOLS_MODE` 读了再传给 `tools` 行——本仓库不挂那些 bundle，所以要这个旋钮就得自己在 `tools` 行写同样的 `!!js` 表达式
 
 ## 上游生态须知（踩过的坑）
 
 - **CLI 的默认模型会被 Web UI 的选择覆盖**：`agent-default-model` 行的 config 属于组合层，而用户级 `$DSH_HOME/settings.yaml` 的同名节优先级更高——你在 Web UI 里选了 Claude，CLI 也会跟着用。所以 CLI 的 `cordis.yml` **必须挂 `llm-pi-ai` 多厂商适配器**，否则会报 `NO_ADAPTER: no adapter registered for provider "anthropic"`。这是四个形态共享一份用户设置（`~/.kingcode/settings.yaml`）的必然结果，不是 bug；换成 KingCode 自己的 home 之后，这份设置至少只被 KingCode 自己写。
 
-- **npm dist-tag**：`@deepseek-ai/dsh-*` 库包的 `latest` 标签滞后，**装 `@next`** 才是与 CLI 对齐的 `0.1.0-rc.6` 版本线
+- **npm dist-tag（2026-09-01 复核）**：上游 8/24 正式定义了预发布通道（`feat(release): route dsh prerelease dist-tags`），现在是三条：`latest` **严重滞后且不再可信**（多数 `@deepseek-ai/dsh-*` 包的 `latest` 甚至掉回 `0.0.1-rc.1`）、`next` = `0.1.1-rc.2`、`alpha` = `0.1.2-alpha.3`。本仓库跟 **alpha**，且 `package.json` 里**逐个写死精确版本**（不用 `^`）：alpha 通道一天能动几次，`^` 会让两次 `npm install` 装出不同的树。升级即改这一串数字，然后照下面那条烟测走一遍
+- **一个第三方插件的 peer 需要 `overrides` 放宽**：`dsh-model-failover@0.1.4` 的 peer 还钉在 `^0.1.0-rc.7`，装 alpha 会 `ERESOLVE`。`package.json` 的 `overrides.dsh-model-failover` 用 `$` 语法把它的四个 peer 指回本仓库自己的取值——只放宽这一个包，不用 `legacy-peer-deps` 把全仓的 peer 校验一起关掉。它挂载正常、`agent/request-error` 这条 waterfall 在 alpha 仍在（`llm-retry` 用的是同一条），但**熔断路径没有被真实限流验证过**
 - **Loader 插件必须具名导出**（`export const name/inject` + `export function apply`），default export 会静默丢 `inject`
 - `cordis.yml` 的 `!!js` 标量是 dsh include 的 YAML 方言，普通 YAML 解析器读不了
 - `fs-observation-policy` 行必须排在 `tool-fs` 之前（写文件要求先读过）
@@ -332,7 +371,7 @@ node eval/run.js --update-baseline    # 把本次结果定为新基线（有 har
 ## 路线图（可选下一步）
 
 - [x] 自写 runner 替换 `@deepseek-ai/dsh-headless` —— 诊断前缀已是 `kingcode:`，且核心服务缺失时改为响亮报错（上游是静默 return，进程会挂着不退、看起来像卡死）
-- [ ] `agent-spine-demo` 展开为自组正式 bundle（demo 包非产品 API）
+- [x] `agent-spine-demo` 展开为自组正式 bundle —— 上游在 `0.1.2-alpha.3` 直接删了那个包（`refactor(bundle): remove the agent spine demo`），这条从「可选下一步」变成了必做项。现在 `cordis.yml` / `eval/cordis.eval.yml` 各有一节逐行展开（17 行 / 14 行，差在 eval 不挂 skill 三行）
 - [ ] 交互式 TUI 形态（上游生态有 `github:deepseek-harness/turtle-ui` 可参考）
 - [ ] 发布 `@kingcode/bundle` 到 npm，支持 `dsh plugin add` 安装进任意 profile（仓库加 `dsh-plugin` topic）
 - [ ] ACP / Python SDK 形态：同一棵组合树换协议头，接编辑器或程序化调用

@@ -41,8 +41,11 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
 ## 结构要点
 
 - `cordis.yml`：组合树，每行一个插件，**行序即挂载声明序**（fs-observation-policy
-  必须先于 tool-fs）。agent-spine-demo 已间接挂载 llm-retry/jobs/skill/invariants/
-  shell-env/tool-bash/agent-instructions 等一批插件，**不要重复挂载**。
+  必须先于 tool-fs）。agent 骨架那一节（timer/llm/session/session-title/
+  system-prompt/tools/skill/agent/llm-retry/jobs/invariants ×5/shell-env/
+  tool-bash/agent-instructions/tool-skill/agent-loop）是原
+  `@deepseek-ai/dsh-agent-spine-demo` 的逐行展开——上游 0.1.2-alpha.3 删掉了那个
+  demo 包。**这些行现在归本仓库维护**：加插件前先确认没和这一节撞 id。
 - `plugins/`：CLI 自有插件。Loader 插件必须具名导出 `name`/`inject`/`apply`
   （default export 会静默丢 inject）。自定义工具照 `multi-edit.js` 写；
   对象 schema 必须显式写 `additionalProperties`。
@@ -89,12 +92,19 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
   也跟着对外。顺带记一条上游事实：**`--host 0.0.0.0` 旗标会被 dsh-web-app 的 startup
   主动拒绝并退 1**，改 bind 只能走覆盖层改 `webserver` 行的 config（id 定向补丁整段
   替换 config，所以 `port` 那个 `!!js` 表达式必须原样重述，否则 `--port` 永久失效）。
-- **`plugins/insecure-context-shim.js` 默认挂在 Web 形态上**：明文 HTTP 到非 loopback
-  地址时浏览器判定为不安全上下文，`crypto.randomUUID` 不存在，而 dsh 的三个 client
-  bundle 每条 RPC 都用它铸 rpcId——症状是页面 200、UI 完整、没有任何报错横幅、工作区
-  永远转圈。垫片在安全上下文里整段跳过，所以本机与 Mac/Win 零影响。注意它**治不了**
-  另一件事：跨机访问时 `settings.*` / `credentials.*` / `agentPreset.read|copy|remove`
-  / `llm.discoverModels` 被上游钉死在 loopback，一律 403，凭证只能在服务侧落盘。
+- **不安全上下文垫片已删（dsh 0.1.2-alpha.1 起上游自己解决了）**：明文 HTTP 到非
+  loopback 地址时浏览器判定为不安全上下文、`crypto.randomUUID` 不存在，曾经由
+  `plugins/insecure-context-shim.js` 补上。上游的 `dsh-util-crypto` 收编了全部调用点
+  并加了全仓 lint 拦住新的调用者，实测（前端 dist 25 个 JS + 59 个插件 client 半侧
+  静态零命中；页面里换成计数器跑一轮 RPC，调用 0 次）确认冗余后删掉。
+  **仍然成立的一条**：`navigator.clipboard` 同样卡 secure context，跨机访问时复制
+  按钮失效（不影响会话）。
+- **跨机配置面的 403 也没了**：`settings.*` / `credentials.*` /
+  `agentPreset.read|copy|remove` / `llm.discoverModels` 曾被上游一份
+  `PRIVILEGED_METHODS` 名单钉死在 loopback；0.1.2-alpha.1 的
+  `fix(web): authenticate the browser Host API` 把那份名单整段删了，换成每进程
+  launch token 换一次签名 cookie。现在的两层是：Host/Origin 栅栏不过 → 403，
+  没有浏览器会话 → 401，**与方法名无关**。
 
 - **KingCode 的 harness home 是 `~/.kingcode`，不是 dsh 默认的 `~/.dsh`**：dsh 的 home
   是「一台机器一份」的用户数据根（`.agent-presets/`、`settings.yaml`、
@@ -117,8 +127,11 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
   之后每一次调用都会死在 boot（除非同时 `KINGCODE_LSP=0`——disabled 的条目不 apply，
   也就不查 server 可执行文件）。当前无 CI、无 Docker、README 记的就是裸 `npm install`，
   所以不构成问题；将来加 CI 要记得这条。
-- **dsh 包一律 `npm i -E @deepseek-ai/<pkg>@0.1.0-rc.6`**。`latest` dist-tag 指向
-  0.0.1 老线，省略版本会装到与本树不兼容的包。
+- **dsh 包一律写精确版本，不用 `^`**：本树跟 alpha 通道（当前 `0.1.2-alpha.3`），
+  `npm i -E @deepseek-ai/<pkg>@0.1.2-alpha.3`。两个理由：`latest` dist-tag 指向
+  0.0.1 老线，省略版本会装到与本树不兼容的包；而 alpha 一天能动几次，`^` 会让两次
+  `npm install` 装出不同的树。升级 = 改 package.json 里那一串数字后 `rm -rf
+  node_modules package-lock.json && npm install`，然后 `npm test` + 无钥烟测 + eval。
 - **后台执行面在工具层整体关闭**：`toolJobs: false` + `toolBash.enableRunInBackground:
   false` + subagent 走 `one-shot`，`tool-subagent-control`/`-report` 不挂。一次性
   CLI 退出时 dispose 整棵树，树外存活的工作必然被带走；与其让 persona 劝模型别用
@@ -128,9 +141,12 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
   预算，而不是无限等待。
 - **不挂 plan-mode / ask-user**：它们的退出都需要一个真人审批，`kingcode "<task>"`
   里没有人，挂上只会让模型卡在等待里。
-- **Code Mode 未启用**：依赖已从 package.json 移除。要启用需重装
-  `dsh-code-runtime-worker-thread` 并给 agent-spine 传 `tools: { mode: both }`，
-  且应当用 eval 证明轮数/耗时确有收益再留下。
+- **PTC（原 Code Mode）未启用**：依赖已从 package.json 移除。要启用需装
+  `dsh-code-runtime-worker-thread`，并给 `cordis.yml` 的 `tools` 行传
+  `mode: ptc`（或 `both`），且应当用 eval 证明轮数/耗时确有收益再留下。
+  上游 0.1.2-alpha.1 把这个特性连同配置值一起从 Code Mode 改名成 PTC
+  （`mode: 'code'` 在这一版**不再是合法取值**），只有 `run_code` 工具名与
+  durable 事件词表（`tool/code-dispatch*`）留在旧名上。
 - **系统提示词的工作纪律在 `plugins/prompt-sections.js`，不在 persona**：persona 有
   三份副本（根树 / eval 树 / profile 补丁），纪律堆在那里必然漂移；且 persona 固定在
   order 0，排在上游工具指导段（100-105）之前，仲裁不了工具取舍。

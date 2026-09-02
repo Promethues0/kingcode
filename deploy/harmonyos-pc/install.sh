@@ -14,7 +14,7 @@
 set -euo pipefail
 
 NODE_VERSION="${KINGCODE_NODE_VERSION:-v24.19.0}"   # ≥22.19.0 是硬下限，见 README
-DSH_VERSION="${KINGCODE_DSH_VERSION:-0.1.0-rc.6}"   # 与开发机验证过的同一版
+DSH_VERSION="${KINGCODE_DSH_VERSION:-0.1.2-alpha.3}"   # 与开发机验证过的同一版（alpha 通道，见仓库 README）
 PNPM_VERSION="${KINGCODE_PNPM_VERSION:-9.12.3}"
 REPO_URL="${KINGCODE_REPO_URL:-https://github.com/Promethues0/kingcode.git}"
 REPO_DIR="${KINGCODE_REPO:-$HOME/kingcode}"
@@ -81,12 +81,13 @@ if [ "$SKIP_SYSTEM" -eq 1 ]; then
   info '按要求跳过'
 else
   have dnf || die '找不到 dnf——这不像融合开发引擎的 openEuler。确认环境，或加 --skip-system 自行准备工具链'
-  # 为什么还要 C++ 工具链：仓库自己的 npm ci 已经**不编译**了——package.json 用
-  # overrides 把 node-pty 钉到 1.2.0-beta.15，那版自带 prebuilds/linux-arm64/pty.node
-  # （上游 dsh-subprocess-local 从 0.1.0-rc.8 起也精确钉这版）。但第 7 步
-  # `npm i -g @deepseek-ai/dsh@$DSH_VERSION` 装的是上游自己的树，不吃本仓库的
-  # overrides：它里面的 node-pty 仍按 ^1.1.0 解析到 1.1.0（semver 区间撞不到预发布），
-  # 那版没有 linux 预编译，必然 node-gyp rebuild。等 Web 形态升到 rc.8+ 才能删这条。
+  # C++ 工具链现在**大概率用不上了**，留着是保险。原委：rc.6 时代第 7 步全局装 dsh
+  # 会把 node-pty 解析到 1.1.0（上游那时写的是 ^1.1.0，semver 区间撞不到预发布），
+  # 那版没有 linux 预编译，必然 node-gyp rebuild，所以这一步非装工具链不可。
+  # 升到 0.1.2-alpha.3 之后实测：全局 dsh 树里的 node-pty 是 1.2.0-beta.15，
+  # 自带 prebuilds/linux-arm64——与本仓库 overrides 钉的是同一版，两边都不再编译。
+  # 没直接删掉这几个包，是因为别的原生传递依赖将来仍可能要它们，而在这台虚拟机上
+  # 「装了用不上」只是多花几分钟，「该装没装」却要重来一遍。
   info '装 git curl tar xz make gcc-c++ python3 glibc-devel ca-certificates（需要 sudo）'
   sudo dnf install -y git curl tar xz make gcc-c++ python3 glibc-devel ca-certificates \
     || die 'dnf 装包失败。先在 preflight 报告里确认这些包在源里存在、以及 sudo 可用'
@@ -183,15 +184,18 @@ fi
 [ -f "$REPO_DIR/package.json" ] || die "$REPO_DIR 里没有 package.json"
 [ -f "$REPO_DIR/jsconfig.json" ] || warn 'jsconfig.json 不在——LSP 的 findReferences 会静默给出不完整结论（它没被 npm pack 打进包，必须走 git 工作树）'
 # 拿到的这份仓库到底含不含鸿蒙部署这批改动？clone 只能拿到**已提交**的东西，
-# 而本脚本自己、垫片、改过的 setup.sh 与 cordis.patch.yml 可能还躺在开发机的工作树里。
-# 不查的话：装完一切正常，直到 Web 起来后宿主访问时工作区转圈（垫片没挂）、
-# 或者 harness home 还是老的 ~/.dsh（setup.sh 是旧版）——两种都极难现场定位。
-for required in deploy/harmonyos-pc/kingcode-web.sh plugins/insecure-context-shim.js; do
+# 而本脚本自己、改过的 setup.sh 与 cordis.patch.yml 可能还躺在开发机的工作树里。
+# 不查的话：装完一切正常，直到 harness home 还是老的 ~/.dsh（setup.sh 是旧版）——
+# 这种极难现场定位。
+#
+# 曾经这里还查过 plugins/insecure-context-shim.js 在不在、profile 补丁挂没挂它。
+# 那个垫片在 dsh 0.1.2-alpha.1 之后已经冗余并删除（上游 dsh-util-crypto 收编了全部
+# crypto.randomUUID 调用点），所以两条检查一并去掉——留着的话，装一份**正确的**新代码
+# 反而会被 die 掉。
+for required in deploy/harmonyos-pc/kingcode-web.sh; do
   [ -f "$REPO_DIR/$required" ] \
     || die "$REPO_DIR 里没有 $required：这份代码不含鸿蒙部署那批改动。clone 只拿得到已提交的东西——先在开发机上把它们提交并推送，或用 --repo 指向一份完整的工作树拷贝"
 done
-grep -q 'insecure-context-shim' "$REPO_DIR/profile/cordis.patch.yml" \
-  || die "$REPO_DIR/profile/cordis.patch.yml 里没挂垫片：跨机访问会出现「页面正常但工作区永远转圈」。同上，先提交推送"
 grep -q '\.kingcode' "$REPO_DIR/profile/setup.sh" \
   || die "$REPO_DIR/profile/setup.sh 还是老版（harness home 仍指 ~/.dsh）。同上，先提交推送"
 if [ -f "$REPO_DIR/.env" ]; then
@@ -268,7 +272,7 @@ cat <<DONE
   更新（重要）：
       cd $REPO_DIR && git pull && npm ci && ./profile/setup.sh
       profile 里的补丁层与 preset 是 setup.sh **拷**进去的，git pull 不会刷新它们——
-      光 pull 不重跑 setup.sh，跑的还是上一版的身份句、预设与垫片。
+      光 pull 不重跑 setup.sh，跑的还是上一版的身份句与预设。
 
   自检（不花模型钱）：
       cd $REPO_DIR && npm test

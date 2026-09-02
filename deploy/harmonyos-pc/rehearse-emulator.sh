@@ -12,9 +12,10 @@
 #   KINGCODE_REHEARSE_WAIT aa start 之后等页面加载的秒数，默认 12
 #
 # 这在验什么：跨机访问链路里「宿主浏览器」那半边——真 ArkWeb 打开
-# http://<服务机IP>:3081 之后，页面 200、KingCode 品牌、垫片标记在、/api 被信任
-# 栅栏放行、WebSocket 下行挂着。dsh 升级 / 垫片改动 / preset 变更后跑一遍，
-# 十分钟内知道这条链路还活不活，别再手敲 hdc。
+# http://<服务机IP>:3081 之后，能换到浏览器会话 cookie、页面 200、KingCode 品牌、
+# 不带 cookie 时被 401 挡住、/api 被信任栅栏放行、WebSocket 下行挂着。
+# dsh 升级 / 品牌层改动 / preset 变更后跑一遍，十分钟内知道这条链路还活不活，
+# 别再手敲 hdc。
 #
 # 角色对照（彩排与真机是镜像的，读报告前先对齐）：
 #   真机：   服务在鸿蒙 PC 的虚拟机里，浏览器在鸿蒙宿主上
@@ -41,10 +42,15 @@ TARGET="${KINGCODE_HDC_TARGET:-}"
 WAIT="${KINGCODE_REHEARSE_WAIT:-12}"
 OUT="${1:-./rehearsal-$(date +%Y%m%d-%H%M%S)}"
 
-# 页面里的两个指纹：垫片标记来自 plugins/insecure-context-shim.js 的 SHIM_TAG，
-# 品牌来自 web-brand。标记不在 = profile 没挂上这份交付（多半是 pull 完没重跑
-# profile/setup.sh），页面照样 200，但真 ArkWeb 里工作区会永远转圈。
-SHIM_MARK='data-kingcode-insecure-context-shim'
+# 页面指纹：品牌来自 web-brand 的服务端半侧（webServer.tapIndex 改的 <title>）。
+# 不在 = profile 没挂上这份交付（多半是 pull 完没重跑 profile/setup.sh），页面照样 200。
+#
+# 曾经这里还有一个 SHIM_MARK（垫片注入的标记）。垫片在 dsh 0.1.2-alpha.1 之后冗余
+# 并删除，那条检查换成了「不带 cookie 必须 401」——见下面「未认证访问」那一步。
+#
+# 注意这个指纹只验服务端那半侧：侧栏与首页的 K 字标现在走的是客户端 slot
+# （sidebar.brand.mark / sidebar.brand.name / conversation.hero.brand.mark），
+# 静态 HTML 里看不到，只能靠最后那张截图肉眼确认。
 BRAND_MARK='<title>KingCode</title>'
 GUEST_TMP='/data/local/tmp/kingcode-rehearsal.jpeg'
 
@@ -75,12 +81,44 @@ bad() {  # $1 步骤名  $2 这步测的是什么  $3 报错原文  $4 下一步
 # 前置条件断了就没有继续的意义：报出三件套，直接收工（不打汇总——一共就跑了这几步）。
 fatal() { bad "$@"; die '前置自检没过，彩排没法继续（原因见上）'; }
 
+# ── 浏览器会话 ─────────────────────────────────────────────────────────────
+# dsh 0.1.2-alpha.1 起整个 Host API 都要一枚浏览器会话 cookie（`fix(web):
+# authenticate the browser Host API`）。拿法：每进程随机一个 launch token，
+# 就绪行里打出来，`GET /?token=…` 换一枚签名 cookie（HttpOnly / SameSite=Strict）。
+# 所以彩排也得先换一次 cookie，否则从这里往下每一发请求都是 401。
+#
+# token 只在**当前进程**有效，服务重启就换一枚——所以每轮彩排都现取，不缓存。
+COOKIE_JAR="$OUT/cookies.txt"
+
+# 服务日志：彩排里服务就在这台 Mac 上，由 kingcode-web.sh 起，日志路径与它一致
+# （$KINGCODE_STATE 或 $DSH_HOME/run，DSH_HOME 默认 ~/.kingcode）。
+WEB_LOG="${KINGCODE_STATE:-${DSH_HOME:-$HOME/.kingcode}/run}/web.log"
+
+# 从服务日志的**最后一条**就绪行里取 launch token。就绪行形如
+#   dsh web: http://127.0.0.1:3081/?token=XXX (LAN: http://10.11.39.141:3081/?token=XXX)
+# 取最后一条：日志是追加的，重启过的话前面那些 token 早就失效了。
+launch_token() {
+  grep -o 'token=[A-Za-z0-9_-]\{16,\}' "$WEB_LOG" 2>/dev/null | tail -1 | cut -d= -f2
+}
+
+# 用 token 换 cookie。换成功的判据是 303（换完重定向到干净的 /），
+# 而不是最终 200——跟随重定向会把「换没换成」和「页面通不通」两件事混成一件。
+exchange_cookie() {
+  mkdir -p "$OUT"
+  curl -s -o /dev/null -m 8 -w '%{http_code}' -c "$COOKIE_JAR" \
+    "http://$1/?token=$2" 2>/dev/null
+}
+
 # ── /api 探针 ──────────────────────────────────────────────────────────────
-# 与 kingcode-web.sh 的 probe_api 同一形状：agentPreset.list 是普通方法，不在
-# 「钉死 loopback 的配置面」名单里，200/403 才分别对应「栅栏放行/拦下」。
+# 与 kingcode-web.sh 的 probe_api 同一形状。**现在有两层，别混**：
+#   403 = Host/Origin 栅栏没放行（DNS rebinding 防线，与方法名无关）
+#   401 = 栅栏过了但没有浏览器会话 cookie
+# 上游那份「钉死 loopback 的配置面」名单（PRIVILEGED_METHODS）在 0.1.2-alpha.1
+# 被整段删掉了，所以不再有「某些方法天生 403」这回事。
 # 不能写 `curl … || echo 连不上`：curl 失败时 -w 已经把 000 吐出来了。
 probe_api() {
   code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
+    -b "$COOKIE_JAR" \
     -H 'content-type: application/json' \
     -d '{"type":"client-request","rpcId":"rehearse","method":"agentPreset.list","payload":{}}' \
     "http://$1/api/agentPreset.list" 2>/dev/null)"
@@ -135,6 +173,25 @@ else
     '模拟器是不是关了/重启过？hdc list targets 重新看一眼，换 KINGCODE_HDC_TARGET 指对'
 fi
 
+# 先换浏览器会话 cookie：0.1.2-alpha.1 之后，不带它的话下面每一发 /api 都是 401，
+# 会把「服务没起」和「没登录」两件事混成一件。
+TOKEN="$(launch_token)"
+if [ -z "$TOKEN" ]; then
+  fatal 'launch token' \
+    "服务日志里有没有带 ?token= 的就绪行（换浏览器会话 cookie 要用它）" \
+    "$WEB_LOG 里没找到 token=…" \
+    "服务是 kingcode-web.sh 起的吗（日志路径由它决定）？手起的话把日志指过来：KINGCODE_STATE=<目录>。另外 dsh < 0.1.2-alpha.1 的就绪行没有 token，那种版本不需要这一步"
+fi
+exchange_code="$(exchange_cookie "127.0.0.1:$PORT" "$TOKEN")"
+if [ "$exchange_code" = 303 ]; then
+  ok '浏览器会话' "token 换到 cookie（303 → /），已存 $COOKIE_JAR"
+else
+  fatal '浏览器会话' \
+    'launch token 能不能换到一枚浏览器会话 cookie（整个 Host API 都认它）' \
+    "GET /?token=… → $exchange_code（期望 303）" \
+    '401=token 不对：服务重启过就换了新的一枚，重跑本脚本即可（它每轮现取）。连不上=服务没起'
+fi
+
 api_local="$(probe_api "127.0.0.1:$PORT")"
 if [ "$api_local" = 200 ]; then
   ok '本机服务' "127.0.0.1:$PORT /api → 200"
@@ -142,7 +199,7 @@ else
   fatal '本机服务' \
     "本机 $PORT 上的 KingCode Web 服务活不活（彩排的被测对象就是它）" \
     "/api → $api_local" \
-    'deploy/harmonyos-pc/kingcode-web.sh start 起服务；已经起了就 status 体检'
+    '401=cookie 没带上或已过期（看上一步）；其余：deploy/harmonyos-pc/kingcode-web.sh start 起服务，已经起了就 status 体检'
 fi
 
 # ── 二、Mac 侧链路（模拟器动手前，先证明服务这半边没问题）────────────────────
@@ -163,24 +220,28 @@ else
     '这台 Mac 联网了吗？或者手工 KINGCODE_LAN_IP=x.x.x.x 指定'
 fi
 
-page_code="$(curl -s -o "$OUT/index.html" -m 8 -w '%{http_code}' "http://$IP:$PORT/" 2>/dev/null)"
+page_code="$(curl -s -o "$OUT/index.html" -m 8 -w '%{http_code}' -b "$COOKIE_JAR" "http://$IP:$PORT/" 2>/dev/null)"
 if [ "$page_code" = 200 ]; then
   ok '页面（Mac 侧）' "http://$IP:$PORT/ → 200，已存 $OUT/index.html"
 else
   fatal '页面（Mac 侧）' \
     "按 LAN 地址取首页（Mac 自己都取不到的话，模拟器更不可能）" \
     "http=$page_code" \
-    '服务是不是只绑了 loopback（KINGCODE_BIND=loopback）？kingcode-web.sh status 看端口那行'
+    '401=cookie 没带上（看「浏览器会话」那步）；403=Host 栅栏（LAN IP 变过就重启服务）；其余：服务是不是只绑了 loopback（KINGCODE_BIND=loopback）？kingcode-web.sh status 看端口那行'
 fi
 
-if grep -q "$SHIM_MARK" "$OUT/index.html"; then
-  ok '垫片标记' "页面里有 $SHIM_MARK"
+# 这一步取代了老版的「垫片标记」。垫片（plugins/insecure-context-shim.js）在
+# dsh 0.1.2-alpha.1 之后已冗余并删除，它当年的角色是「这份交付到底装上没有」的
+# 页面指纹；现在换成一条更直接的安全断言：**不带 cookie 就必须 401**。
+# 它同时能抓住两种真实故障：认证层根本没生效（回到裸奔），或者服务是老版本。
+naked_code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://$IP:$PORT/" 2>/dev/null)"
+if [ "$naked_code" = 401 ]; then
+  ok '未认证访问' "无 cookie 取首页 → 401（浏览器会话认证生效）"
 else
-  # 不 fatal：页面通着，剩下的步骤照跑——截图正好会拍到「转圈」这个后果。
-  bad '垫片标记' \
-    "首页里有没有 insecure-context 垫片（没有它，真 ArkWeb 里工作区永远转圈、不报错）" \
-    "页面 200 但找不到 $SHIM_MARK" \
-    'profile/setup.sh 重跑过没有？profile 的 cordis.patch.yml 里 insecure-context-shim 挂着没？'
+  bad '未认证访问' \
+    '不带浏览器会话 cookie 时首页是不是被挡住（挡不住 = 这台机器的 LAN 上谁都能用这个 agent）' \
+    "无 cookie → $naked_code（期望 401）" \
+    'dsh 是不是还在 0.1.2-alpha.1 之前？那种版本没有这层认证——升级，或者接受「绑 0.0.0.0 就等于对 LAN 敞开」'
 fi
 
 if grep -q "$BRAND_MARK" "$OUT/index.html"; then
@@ -210,9 +271,12 @@ info '三、客户机动作（模拟器扮演鸿蒙宿主）'
 estab_before="$(emu_estab)"
 info "aa start 前，来自模拟器的 ESTABLISHED 基线：$estab_before 条"
 
-aa_out="$("$HDC" -t "$TARGET" shell "aa start -A ohos.want.action.viewData -U http://$IP:$PORT/ 2>&1" | tr -d '\r')"
+# URL 必须带 ?token=：客户机浏览器是全新的，没有那枚 cookie，裸地址会被 401 挡住
+# （0.1.2-alpha.1 起）。这与真机上用户的做法一致——第一次用就绪行里那条带 token 的
+# 地址打开，换到 cookie 之后才可以用干净的 /。
+aa_out="$("$HDC" -t "$TARGET" shell "aa start -A ohos.want.action.viewData -U 'http://$IP:$PORT/?token=$TOKEN' 2>&1" | tr -d '\r')"
 if printf '%s' "$aa_out" | grep -q 'start ability successfully'; then
-  ok '拉起客户机浏览器' "aa start → $IP:$PORT（会新开一个标签页并弹内测声明，正常）"
+  ok '拉起客户机浏览器' "aa start → $IP:$PORT（带 launch token；会新开一个标签页并弹内测声明，正常）"
 else
   bad '拉起客户机浏览器' \
     '用 viewData want 让客户机默认浏览器打开服务地址（hdc 失败也退 0，只能看回显）' \
@@ -265,10 +329,17 @@ fi
 
   肉眼判读（机器看不懂截图，这步免不了）：
     打开 $OUT/guest.jpeg——
-    工作区列表有数据      = 垫片在真 ArkWeb 里生效，整条链路通
-    工作区空转圈          = 看上面「信任栅栏」那步：403 是栅栏（IP 变了就重启服务）；
-                            200 则多半是 randomUUID（垫片没挂上，看「垫片标记」那步）
-    设置面板里有 403      = 正常态，配置面上游钉死 loopback，改不掉也不必改
+    工作区列表有数据      = 整条链路通
+    侧栏与首页是 K 字标   = 品牌 slot 在真 ArkWeb 里生效（静态 HTML 验不到这个，
+                            只有截图能看；看到鲸鱼就是 web-brand 的客户端半侧没加载）
+    页面是 401 / 空白     = 模拟器那边没有 cookie。真机上用户是拿带 ?token= 的地址
+                            开的第一次，之后才靠 cookie；彩排里 aa start 传的也是那条
+    工作区空转圈          = 看上面「信任栅栏」那步：403 是 Host 栅栏（IP 变了就重启
+                            服务，信任名单是启动那一刻的快照）
+    设置面板能改 key      = 正常态。上游那份钉死 loopback 的配置面名单
+                            （PRIVILEGED_METHODS）在 0.1.2-alpha.1 已删，跨机也能改
+    复制按钮点了没反应    = 已知限制，navigator.clipboard 卡 secure context，
+                            上游没治，不影响会话
 EOF
   if [ "$FAILED" -eq 0 ]; then
     printf '\n  结论：机器能验的全过。肉眼确认 guest.jpeg 后，这轮彩排就算完成。\n'
