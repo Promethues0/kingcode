@@ -276,6 +276,10 @@ Configs 勾自动签名（仓库不携带签名材料，`signingConfigs` 是空�
 bundleName 与设备 UDID，只能现场生成），连上真机点 Run。命令行构建见
 `deploy/harmonyos-pc/README.md`。
 
+## 鸿蒙 PC（原生，HiShell）
+
+不经虚拟机的第二条路：引擎直接跑在鸿蒙 PC 自带终端（HiShell）里，Node 是 Harmonybrew 装的原生 `platform=openharmony` 构建。**A 级判据已在真机过（2026-09-02）**：整棵 CLI 组合树 boot 成功、无钥烟测恰好死在 `MISSING_CREDENTIAL`、`npm test` 全绿。要打五处 node_modules 补丁（koffi 桩、终端检查器、两处 link→rename、ripgrep 平台包），外加 `DSH_HOME` 放 el2、`KINGCODE_LSP=0`；脚本与真机事实在 [`deploy/harmonyos-native/`](deploy/harmonyos-native/README.md)。Web 形态（B 级）未做，卡在全局树的 sandbox-local 同样依赖 koffi。「应用沙箱里没有 Node」这句对应用沙箱域仍成立，对整台机器不成立。
+
 ## 鸿蒙 PC（融合开发引擎）
 
 鸿蒙电脑上装的是**引擎本体，不是瘦客户端**：华为的「融合开发引擎」提供一键 openEuler（Linux 6.6、aarch64）环境，有终端有包管理，所以 bash / git / tsc / LSP / 子代理这套工具面一件不少，CLI 与 Web 两种形态都在虚拟机里跑，Web 由**鸿蒙宿主侧的浏览器**访问。
