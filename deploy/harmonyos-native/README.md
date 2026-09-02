@@ -4,9 +4,11 @@
 引擎直接跑在鸿蒙 PC 自带的终端（HiShell）里，Node 是 Harmonybrew 装的原生
 `platform=openharmony` 构建，没有虚拟机。
 
-**状态（2026-09-02 真机）**：A 级判据已过——整棵 CLI 组合树在 HiShell 里 boot 成功、
-无钥烟测恰好死在 `MISSING_CREDENTIAL`（退出码 1、结果文件落盘、会话目录写成功），
-`npm test` 全绿。带钥的真回答还没跑（设备上没有凭证）。Web 形态（B 级）未做。
+**状态（2026-09-02 真机）**：A 级已通——整棵 CLI 组合树在 HiShell 里 boot 成功，无钥烟测
+恰好死在 `MISSING_CREDENTIAL`，`npm test` 全绿；把凭证放进 el2 home 后，带钥 `say hi` 退出码 0，
+一个真用工具的任务也过了：bash 工具经 node-pty 在原生内核上跑 `uname -a`（回的是
+HongMeng Kernel 1.13.0），grep 工具经 ripgrep 数出 README 里 26 行——subprocess-local 的
+openharmony 检查器与 ripgrep 平台包两条链路都真跑了。Web 形态（B 级）未做。
 
 设备：HUAWEI MateBook 14 / HarmonyOS 7.0.0.102 / API 26 / HongMeng Kernel 1.13.0 /
 Node 26.8.1（`process.platform === 'openharmony'`，V8 非 lite、JIT 正常）。
@@ -22,6 +24,7 @@ sh deploy/harmonyos-native/patch-node-modules.sh # 五处补丁，幂等，--rev
 . deploy/harmonyos-native/env.sh                 # PATH / DSH_HOME=el2 / KINGCODE_LSP=0
 sh deploy/harmonyos-native/smoke.sh              # 无钥：PASS = 恰好死在 MISSING_CREDENTIAL
 DEEPSEEK_API_KEY=sk-... sh deploy/harmonyos-native/smoke.sh   # 带钥：应有回答
+# 或者把 .credentials.yaml 放进 $DSH_HOME（chmod 600，必须在 el2 上）后直接 node bin/kingcode.js "say hi"
 ```
 
 > 第 1、2 步是按 09-01 在真机上摸索出的顺序整理的，当时的 `npm ci` 是在 koffi 处失败后手工
@@ -73,7 +76,6 @@ node-pty 用本机 clang 现编（Harmonybrew 没有 llvm/clang formula，`ohos-
 
 ## 未做 / 未验
 
-- 带钥的真回答（设备上没有凭证；在 HiShell 里 `export DEEPSEEK_API_KEY=…` 后跑 smoke.sh）。
 - B 级（Web 形态原生 + ArkWeb 壳连 127.0.0.1）：全局 dsh 树多三处——`dsh-sandbox-local` →
   `dsh-sandbox-windows-acl` 也静态 import koffi，且 sandbox-local 会做 `STARTUPINFOW` 布局探测，
   本桩过不了（09-01 实测 `layout mismatch: koffi computed undefined`）；`dsh-attachment-local`
