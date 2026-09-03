@@ -35,6 +35,13 @@ internal sealed class ServerController : IDisposable
     internal Uri Url => new($"http://127.0.0.1:{_port}");
     internal string LogPath { get; }
 
+    /// <summary>
+    /// 引擎就绪行里那条带 launch token 的地址——首次加载必须用它去换会话 cookie。
+    /// dsh 0.1.2-alpha.2 起整个 Host API 都要这枚 cookie，<b>loopback 也不豁免</b>。
+    /// 附着到别人起的引擎时可能为 null（那个进程的就绪行不在我们的日志里）。
+    /// </summary>
+    internal Uri? AuthenticatedUrl { get; private set; }
+
     // ── 工具链解析 ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -115,17 +122,51 @@ internal sealed class ServerController : IDisposable
 
     // ── 探活与启动 ─────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// 端口上是否已经有人在服务。
+    /// <para>
+    /// <b>401 同样算活着</b>：dsh 0.1.2-alpha.2 起首页要一枚会话 cookie，没有 cookie 时
+    /// 返回 401——那是认证层在正常工作，不是引擎没起来。只认 2xx 的话探活永远不满足，
+    /// 客户端会一直卡在「正在连接」直到超时，而引擎其实好好地跑着。
+    /// </para>
+    /// </summary>
     private async Task<bool> IsUpAsync()
     {
         try
         {
             using var response = await Probe.GetAsync(Url, HttpCompletionOption.ResponseHeadersRead);
-            return response.IsSuccessStatusCode;
+            return response.IsSuccessStatusCode || (int)response.StatusCode == 401;
         }
         catch
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 从引擎日志里捞最后一条就绪行的 loopback 地址（带 token）。
+    /// 上游打的格式是 <c>dsh web: &lt;loopback 地址&gt; (LAN: &lt;LAN 地址&gt;)</c>，
+    /// 两半都带 <c>?token=</c>；这里只要 loopback 那半截。日志是追加的，所以从后往前找。
+    /// </summary>
+    private Uri? ReadyUrlFromLog()
+    {
+        string text;
+        try
+        {
+            // 引擎还开着这个文件，必须允许共享读
+            using var stream = new FileStream(LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            text = reader.ReadToEnd();
+        }
+        catch { return null; }
+
+        var marker = $"dsh web: http://127.0.0.1:{_port}/";
+        var at = text.LastIndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return null;
+        var raw = text[(at + "dsh web: ".Length)..];
+        var end = raw.AsSpan().IndexOfAny(' ', '\r', '\n');
+        if (end >= 0) raw = raw[..end];
+        return Uri.TryCreate(raw, UriKind.Absolute, out var parsed) ? parsed : null;
     }
 
     internal async Task StartAsync()
@@ -134,7 +175,11 @@ internal sealed class ServerController : IDisposable
 
         if (await IsUpAsync())
         {
-            // 已经有人在跑（终端里手动起的），附着上去，退出时不动它
+            // 已经有人在跑（终端里手动起的），附着上去，退出时不动它。
+            // 这条路拿不到那个进程的 token（它的就绪行不在我们的日志里），只能用裸地址：
+            // WebView2 的 cookie 落在 user data folder 里、跨启动持久，上次换到的那枚
+            // 30 天内仍然有效，所以通常直接就进去了；真过期的话页面会显示 401 的提示文字。
+            AuthenticatedUrl = ReadyUrlFromLog();
             StateChanged?.Invoke(new State(Phase.Ready, string.Empty));
             return;
         }
@@ -188,6 +233,9 @@ internal sealed class ServerController : IDisposable
         info.ArgumentList.Add("kingcode");
         info.ArgumentList.Add("--port");
         info.ArgumentList.Add(_port.ToString());
+        // 上游 dsh-web-app 的 openBrowser 默认为 true，不关掉的话除了我们自己的窗口，
+        // 还会再弹一个系统浏览器（而且弹的是带 token 的地址）。
+        info.ArgumentList.Add("--no-open");
 
         try
         {
@@ -221,14 +269,23 @@ internal sealed class ServerController : IDisposable
         await WaitUntilReadyAsync();
     }
 
-    /// <summary>轮询到起得来为止；引擎首启要装配整棵插件树，给足 90 秒。</summary>
+    /// <summary>
+    /// 轮询到起得来为止；引擎首启要装配整棵插件树，给足 90 秒。
+    /// <para>
+    /// <b>判据是日志里的就绪行，不是端口探活</b>：端口先开、整棵 Loader 树 settle 之后
+    /// 才打那一行，而那一行里的 <c>?token=</c> 正是首次加载要用来换 cookie 的东西。
+    /// 早一步拿裸地址去加载，只会得到一页 401。
+    /// </para>
+    /// </summary>
     private async Task WaitUntilReadyAsync()
     {
         var deadline = DateTime.UtcNow.AddSeconds(90);
         while (DateTime.UtcNow < deadline)
         {
-            if (await IsUpAsync())
+            var ready = ReadyUrlFromLog();
+            if (ready is not null)
             {
+                AuthenticatedUrl = ready;
                 StateChanged?.Invoke(new State(Phase.Ready, string.Empty));
                 return;
             }

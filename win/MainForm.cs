@@ -109,7 +109,9 @@ internal sealed class MainForm : Form
                 _launch.ShowStarting(state.Message);
                 break;
             case ServerController.Phase.Ready:
-                _webView.Source = _server.Url;
+                // 首次加载走带 token 的地址去换会话 cookie（alpha.2 起 loopback 也要）；
+                // 附着到别人起的引擎时拿不到 token，退回裸地址靠已持久化的 cookie。
+                _webView.Source = _server.AuthenticatedUrl ?? _server.Url;
                 break;
             case ServerController.Phase.Failed:
                 _launch.ShowFailure(state.Message);

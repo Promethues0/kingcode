@@ -27,6 +27,10 @@ final class ServerController {
     var url: URL { URL(string: "http://127.0.0.1:\(port)")! }
     var logPath: String { logURL.path }
 
+    /// 引擎就绪行里那条带 launch token 的地址——首次加载必须用它去换会话 cookie。
+    /// dsh 0.1.2-alpha.2 起整个 Host API 都要这枚 cookie，**loopback 也不豁免**。
+    private(set) var authenticatedURL: URL?
+
     // MARK: - 工具链解析
 
     /// 从 GUI 启动时进程 PATH 只有 /usr/bin:/bin 之类，node 必然找不到。
@@ -97,15 +101,33 @@ final class ServerController {
     // MARK: - 探活
 
     /// 端口上是否已经有人在服务。
+    ///
+    /// **401 同样算活着**：dsh 0.1.2-alpha.2 起首页要一枚会话 cookie，没有 cookie 时
+    /// 返回 401（正文 `dsh web authentication required…`）——那是认证层在正常工作，
+    /// 不是引擎没起来。只认 200 的话探活永远不满足，客户端会一直卡在「正在连接」
+    /// 直到超时，而引擎其实好好地跑着。
     private func probe(timeout: TimeInterval = 1.2, completion: @escaping (Bool) -> Void) {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         URLSession.shared.dataTask(with: request) { _, response, _ in
-            let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            completion(ok)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            completion(code == 200 || code == 401)
         }.resume()
+    }
+
+    /// 从引擎日志里捞最后一条就绪行的 loopback 地址（带 token）。
+    /// 上游打的格式是 `dsh web: <loopback 地址> (LAN: <LAN 地址>)`，两半都带 `?token=`；
+    /// 这里只要 loopback 那半截。日志是追加的，所以从后往前找。
+    private func readyURLFromLog() -> URL? {
+        guard let text = try? String(contentsOf: logURL, encoding: .utf8) else { return nil }
+        let marker = "dsh web: http://127.0.0.1:\(port)/"
+        guard let hit = text.range(of: marker, options: .backwards) else { return nil }
+        let raw = text[hit.lowerBound...]
+            .dropFirst("dsh web: ".count)
+            .prefix { !$0.isWhitespace }
+        return URL(string: String(raw))
     }
 
     // MARK: - 启动
@@ -115,8 +137,14 @@ final class ServerController {
         probe { [weak self] alreadyUp in
             guard let self else { return }
             if alreadyUp {
-                // 已经有一个在跑（比如终端里手动起的）——附着上去，退出时不动它
-                DispatchQueue.main.async { self.onState?(.ready(self.url)) }
+                // 已经有一个在跑（比如终端里手动起的）——附着上去，退出时不动它。
+                // 这条路拿不到那个进程的 token（它的就绪行不在我们的日志里），只能用裸地址：
+                // WKWebView 的 cookie 是持久化的，上次换到的那枚 30 天内仍然有效，所以
+                // 通常直接就进去了；真过期的话页面会显示 401 的提示文字，按提示重开即可。
+                DispatchQueue.main.async {
+                    self.authenticatedURL = self.readyURLFromLog()
+                    self.onState?(.ready(self.authenticatedURL ?? self.url))
+                }
                 return
             }
             DispatchQueue.main.async { self.spawn() }
@@ -138,7 +166,9 @@ final class ServerController {
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: node)
-        task.arguments = [entry, "--profile", "kingcode", "--port", String(port)]
+        // --no-open：上游 dsh-web-app 的 openBrowser 默认为 true，不关掉的话除了我们
+        // 自己的窗口，还会再弹一个系统浏览器（而且弹的是带 token 的地址）。
+        task.arguments = [entry, "--profile", "kingcode", "--port", String(port), "--no-open"]
         task.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
 
         var env = ProcessInfo.processInfo.environment
@@ -182,21 +212,23 @@ final class ServerController {
     }
 
     /// 轮询到起得来为止；引擎首启要装配整棵插件树，给足 60 秒。
+    ///
+    /// **判据是日志里的就绪行，不是端口探活**：端口先开、整棵 Loader 树 settle 之后才打
+    /// 那一行，而那一行里的 `?token=` 正是首次加载要用来换 cookie 的东西。早一步拿裸地址
+    /// 去加载，只会得到一页 401。
     private func waitUntilReady(deadline: Date = Date().addingTimeInterval(60)) {
-        probe(timeout: 1.0) { [weak self] up in
-            guard let self else { return }
-            if up {
-                DispatchQueue.main.async { self.onState?(.ready(self.url)) }
-                return
-            }
-            guard Date() < deadline else {
-                DispatchQueue.main.async {
-                    self.onState?(.failed("引擎启动超时（60 秒）。\n\(self.logTail())"))
-                }
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.waitUntilReady(deadline: deadline) }
+        if let ready = readyURLFromLog() {
+            authenticatedURL = ready
+            DispatchQueue.main.async { self.onState?(.ready(ready)) }
+            return
         }
+        guard Date() < deadline else {
+            DispatchQueue.main.async {
+                self.onState?(.failed("引擎启动超时（60 秒）。\n\(self.logTail())"))
+            }
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.waitUntilReady(deadline: deadline) }
     }
 
     private func logTail(lines: Int = 8) -> String {

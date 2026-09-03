@@ -83,11 +83,31 @@ SUP_SIG='kingcode-web.sh'          # 看门狗是 `bash .../kingcode-web.sh __su
 ENG_SIG='--profile kingcode'       # 引擎是 `node .../dsh/lib/bin.js --profile kingcode ...`
 
 # 日志里最后一条就绪行，以及 dsh 在那一刻拍进 /api 信任名单的 LAN IP。
-# 就绪行长这样：`dsh web: http://127.0.0.1:3081 (LAN: http://10.11.39.141:3081)`
+# 就绪行长这样（alpha.2 起两半都带 token）：
+#   `dsh web: http://127.0.0.1:3081/?token=… (LAN: http://10.11.39.141:3081/?token=…)`
 # ——只认 `LAN: http://` 后面那段数字，127.0.0.1 那半截永远匹配不上；
 # loopback 绑法的就绪行没有 LAN 半截，此时输出为空。
 last_ready_line() { grep "$READY_LINE" "$LOG" 2>/dev/null | tail -1; }
 trusted_lan_ip()  { last_ready_line | grep -o 'LAN: http://[0-9][0-9.]*' | sed 's|.*http://||'; }
+
+# 就绪行里 loopback / LAN 那半截的**完整地址（含 ?token=）**。
+# dsh 0.1.2-alpha.2 起整个 Host API 要一枚签名 cookie，loopback 也不豁免：
+# 首次必须用带 token 的地址访问一次，换到 cookie（30 天）之后才能用干净地址。
+ready_url_loopback() { last_ready_line | grep -o "http://127\.0\.0\.1:$PORT/[^ )]*" | head -1; }
+ready_url_lan()      { last_ready_line | sed -n 's/.*(LAN: \([^)]*\)).*/\1/p' | head -1; }
+
+# 拿 token 换一枚会话 cookie 落进临时 jar，回声 jar 路径；换不到就回声空。
+# 调用方负责 rm。探针必须带上它，否则 /api 一律 401，看着像引擎死了。
+mint_cookie_jar() {
+  command -v curl >/dev/null 2>&1 || return 0
+  u="$(ready_url_loopback)"; [ -n "$u" ] || return 0
+  jar="$(mktemp 2>/dev/null)" || return 0
+  code="$(curl -s -o /dev/null -c "$jar" -m 8 -w '%{http_code}' "$u" 2>/dev/null)"
+  case "$code" in
+    303|200) printf '%s' "$jar" ;;
+    *)       rm -f "$jar" ;;
+  esac
+}
 
 # 虚拟机自己的 IP，分两层：
 # vm_ip_live 只认**现在**能量到的（iproute2 → hostname -I），量不到就失败——
@@ -303,16 +323,22 @@ stop() {
 }
 
 # ── status ─────────────────────────────────────────────────────────────────
+# $1 = authority（host:port），$2 = cookie jar（可空）
 probe_api() {
   command -v curl >/dev/null 2>&1 || { echo '无 curl'; return; }
+  # 端点名是 `<namespace>/<method>` 的规范形式，且请求体里的 method 必须与它逐字相同
+  # （不一致时网关回 `method "x" does not match endpoint "y"`）。老的 `agentPreset.list`
+  # 在 alpha.3 上是 404——那是探针写错了，不是引擎坏了。
   # 不能写 `curl … || echo '连不上'`：curl 失败时 -w 已经把 000 吐出来了，
   # 再 echo 一句就拼成 `000连不上` 这种半截话。先收进变量再判。
   code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
+    ${2:+-b "$2"} \
     -H 'content-type: application/json' \
-    -d '{"type":"client-request","rpcId":"probe","method":"agentPreset.list","payload":{}}' \
-    "http://$1/api/agentPreset.list" 2>/dev/null)"
+    -d '{"type":"client-request","rpcId":"probe","method":"agentPresets/list","payload":{}}' \
+    "http://$1/api/agentPresets/list" 2>/dev/null)"
   case "$code" in
     ''|000) echo '连不上' ;;
+    401)    echo '401（认证生效、这次没带上 cookie——引擎是活的）' ;;
     *)      echo "$code" ;;
   esac
 }
@@ -337,15 +363,19 @@ status() {
     ready="$ready  ←历史记录（引擎现在没在跑）"
   fi
   printf '  %-14s %s\n' '就绪行' "${ready:-日志里还没有}"
-  printf '  %-14s %s\n' '本机 /api' "$(probe_api "127.0.0.1:$PORT")  （200 才算真活着）"
+  # 探针必须带 cookie：alpha.2 起 /api 无 cookie 一律 401，不带就永远读成「死了」。
+  JAR="$(mint_cookie_jar)"
+  printf '  %-14s %s\n' '本机 /api' "$(probe_api "127.0.0.1:$PORT" "$JAR")  （200 才算真活着）"
   if [ "$BIND" = all ]; then
     ip="$(vm_ip)"
     if [ -n "$ip" ]; then
-      code="$(probe_api "$ip:$PORT")"
+      code="$(probe_api "$ip:$PORT" "$JAR")"
       # 这一探针是在虚拟机内部打虚拟机自己的 IP：它证明的是「绑对了 + 信任栅栏放行
       # 这个 authority」，**不**证明宿主到虚拟机那条路通——那条只能在宿主的浏览器里试
       # （preflight.sh 第六节）。别把这行读成「宿主能访问了」。
-      printf '  %-14s %s\n' '本机打 LAN 口' "$ip:$PORT → $code  （403=信任栅栏拦了；连不上=没绑对或防火墙。此项不证明宿主可达）"
+      # 注意 401 在这里是正常的：cookie 与 host:port 绑定，拿 127.0.0.1 换来的那枚
+      # 对 LAN authority 不成立——能收到 401 恰好说明栅栏放行了（没放行是 403）。
+      printf '  %-14s %s\n' '本机打 LAN 口' "$ip:$PORT → $code  （403=信任栅栏拦了；401=栅栏已放行、只是 cookie 不通用；连不上=没绑对或防火墙。此项不证明宿主可达）"
     else
       printf '  %-14s %s\n' '跨机 /api' '量不到本机 IP（没有 ip / hostname，日志里也没有 LAN 行）——这项没查成'
     fi
@@ -367,19 +397,32 @@ status() {
       fi
     fi
   fi
+  [ -n "${JAR:-}" ] && rm -f "$JAR"
 }
 
 # ── url ────────────────────────────────────────────────────────────────────
+# 递出去的必须是**带 token 的完整地址**：alpha.2 起首页无 cookie 一律 401，
+# 递裸地址等于送人去看一行英文报错。换到 cookie（30 天）之后干净地址才好使。
 url() {
   ip="$(vm_ip)"
+  lan="$(ready_url_lan)"
+  loop="$(ready_url_loopback)"
   if [ "$BIND" != all ]; then
-    printf '  只绑了 loopback：仅本机可用  http://127.0.0.1:%s\n' "$PORT"
+    printf '  只绑了 loopback：仅本机可用  %s\n' "${loop:-http://127.0.0.1:$PORT（日志里还没有就绪行）}"
     printf '  要让鸿蒙宿主的浏览器能开，用 KINGCODE_BIND=all 重启\n'
     return
   fi
-  printf '  在**鸿蒙宿主侧的浏览器**里打开：  http://%s:%s\n' "${ip:-<虚拟机IP>}" "$PORT"
-  printf '  虚拟机内部自测：                  http://127.0.0.1:%s\n' "$PORT"
+  if [ -n "$lan" ]; then
+    printf '  在**鸿蒙宿主侧的浏览器 / 鸿蒙壳**里打开（首次必须用这条带 token 的）：\n    %s\n' "$lan"
+  else
+    printf '  在**鸿蒙宿主侧的浏览器**里打开：  http://%s:%s\n' "${ip:-<虚拟机IP>}" "$PORT"
+    printf '    ！日志里还没有就绪行，拿不到 token——这条裸地址会是 401。先 status 看引擎起没起\n'
+  fi
+  printf '  虚拟机内部自测：                  %s\n' "${loop:-http://127.0.0.1:$PORT}"
+  printf '  换到 cookie 之后（30 天内）用干净地址即可：http://%s:%s\n' "${ip:-<虚拟机IP>}" "$PORT"
   printf '  注意：融合开发引擎的虚拟机 IP 每次开机可能变，别把它存成书签——用本命令重新问。\n'
+  printf '  服务每次重启换一枚新 token，但**已发的 cookie 仍然有效**（签名密钥落盘在\n'
+  printf '    $DSH_HOME/.credentials.yaml）——所以重启后通常不用重新贴地址。\n'
   # url 是用户拿地址的入口——IP 漂移了还把新地址递出去而不说一声，等于送他去 403。
   if alive "$ENG_PID" "$ENG_SIG"; then
     trusted="$(trusted_lan_ip)"
