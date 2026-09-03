@@ -14,7 +14,7 @@
 set -euo pipefail
 
 NODE_VERSION="${KINGCODE_NODE_VERSION:-v24.19.0}"   # ≥22.19.0 是硬下限，见 README
-DSH_VERSION="${KINGCODE_DSH_VERSION:-0.1.2-alpha.3}"   # 与开发机验证过的同一版（alpha 通道，见仓库 README）
+DSH_VERSION="${KINGCODE_DSH_VERSION:-0.1.2-alpha.5}"   # 与开发机验证过的同一版（alpha 通道，见仓库 README）
 PNPM_VERSION="${KINGCODE_PNPM_VERSION:-9.12.3}"
 REPO_URL="${KINGCODE_REPO_URL:-https://github.com/Promethues0/kingcode.git}"
 REPO_DIR="${KINGCODE_REPO:-$HOME/kingcode}"

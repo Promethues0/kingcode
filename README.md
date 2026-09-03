@@ -364,7 +364,9 @@ node eval/run.js --update-baseline    # 把本次结果定为新基线（有 har
 
 - **CLI 的默认模型会被 Web UI 的选择覆盖**：`agent-default-model` 行的 config 属于组合层，而用户级 `$DSH_HOME/settings.yaml` 的同名节优先级更高——你在 Web UI 里选了 Claude，CLI 也会跟着用。所以 CLI 的 `cordis.yml` **必须挂 `llm-pi-ai` 多厂商适配器**，否则会报 `NO_ADAPTER: no adapter registered for provider "anthropic"`。这是四个形态共享一份用户设置（`~/.kingcode/settings.yaml`）的必然结果，不是 bug；换成 KingCode 自己的 home 之后，这份设置至少只被 KingCode 自己写。
 
-- **npm dist-tag（2026-09-01 复核）**：上游 8/24 正式定义了预发布通道（`feat(release): route dsh prerelease dist-tags`），现在是三条：`latest` **严重滞后且不再可信**（多数 `@deepseek-ai/dsh-*` 包的 `latest` 甚至掉回 `0.0.1-rc.1`）、`next` = `0.1.1-rc.2`、`alpha` = `0.1.2-alpha.3`。本仓库跟 **alpha**，且 `package.json` 里**逐个写死精确版本**（不用 `^`）：alpha 通道一天能动几次，`^` 会让两次 `npm install` 装出不同的树。升级即改这一串数字，然后照下面那条烟测走一遍
+- **npm dist-tag**：上游 8/24 正式定义了预发布通道（`feat(release): route dsh prerelease dist-tags`），现在是三条：`latest` **严重滞后且不再可信**（且按包不同——meta 包 `@deepseek-ai/dsh` 的 `latest` 是 `0.1.1-rc.2`，而多数子包掉回 `0.0.1-rc.1`）、`next`、`alpha`。本仓库跟 **alpha**（2026-09-03 起是 `0.1.2-alpha.5`），且 `package.json` 里**逐个写死精确版本**（不用 `^`）：alpha 通道一天能动几次，`^` 会让两次 `npm install` 装出不同的树。**别信这里写的数字，以 `npm view @deepseek-ai/dsh dist-tags` 为准**——写进文档的版本号当天就会过期。升级即改这一串数字，然后照下面那条烟测走一遍
+
+- **`Session.events` 在 0.1.2-alpha.4 被删掉了**：换成 `seq` + `eventAt()` / `snapshotEvents()` / `ownEvents()` 一组带品牌类型的读接口（上游自己的 `dsh-headless` 同一版把 `summarize` 从收数组改成了收 session）。本仓库的 `plugins/runner.js` 有个 `readEvents` 适配层同时吃两代接口，所以 alpha.3 与 alpha.4+ 都能跑。**这类「上游删 API」的教训是测试假对象要跟着上游的形状走**：改之前 `test-runner.js` 把 `events` 伪造成普通数组，于是真 getter 被删时整套测试照样全绿，而带钥运行必炸在收尾处
 - **一个第三方插件的 peer 需要 `overrides` 放宽**：`dsh-model-failover@0.1.4` 的 peer 还钉在 `^0.1.0-rc.7`，装 alpha 会 `ERESOLVE`。`package.json` 的 `overrides.dsh-model-failover` 用 `$` 语法把它的四个 peer 指回本仓库自己的取值——只放宽这一个包，不用 `legacy-peer-deps` 把全仓的 peer 校验一起关掉。它挂载正常、`agent/request-error` 这条 waterfall 在 alpha 仍在（`llm-retry` 用的是同一条），但**熔断路径没有被真实限流验证过**
 - **Loader 插件必须具名导出**（`export const name/inject` + `export function apply`），default export 会静默丢 `inject`
 - `cordis.yml` 的 `!!js` 标量是 dsh include 的 YAML 方言，普通 YAML 解析器读不了

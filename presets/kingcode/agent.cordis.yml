@@ -16,7 +16,8 @@
 # 对照方式（零依赖，注释与空行都滤掉，剩下的差异就应该只有上面那三处叠加）：
 #   STD=~/.local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml
 #   diff -u <(grep -vE '^\s*#|^\s*$' "$STD") <(grep -vE '^\s*#|^\s*$' presets/kingcode/agent.cordis.yml)
-# 本文件当前对齐到 **0.1.2-alpha.3**（相对 0.1.0-rc.6 跟进了四处：新增 command-goal 行、
+# 本文件当前对齐到 **0.1.2-alpha.5**（alpha.3→alpha.5 的 standard preset 逐字未变；
+# 相对 0.1.0-rc.6 跟进了四处：新增 command-goal 行、
 # 主 spawn 子代理加 modelSelectionSettings、codex/claude-code 两行的
 # enableRunInBackground 换成 backgroundMode: one-shot、tool-web 的 fetch 翻 true）。
 #

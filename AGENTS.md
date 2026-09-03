@@ -127,11 +127,14 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
   之后每一次调用都会死在 boot（除非同时 `KINGCODE_LSP=0`——disabled 的条目不 apply，
   也就不查 server 可执行文件）。当前无 CI、无 Docker、README 记的就是裸 `npm install`，
   所以不构成问题；将来加 CI 要记得这条。
-- **dsh 包一律写精确版本，不用 `^`**：本树跟 alpha 通道（当前 `0.1.2-alpha.3`），
-  `npm i -E @deepseek-ai/<pkg>@0.1.2-alpha.3`。两个理由：`latest` dist-tag 指向
-  0.0.1 老线，省略版本会装到与本树不兼容的包；而 alpha 一天能动几次，`^` 会让两次
-  `npm install` 装出不同的树。升级 = 改 package.json 里那一串数字后 `rm -rf
-  node_modules package-lock.json && npm install`，然后 `npm test` + 无钥烟测 + eval。
+- **dsh 包一律写精确版本，不用 `^`**：本树跟 alpha 通道（当前 `0.1.2-alpha.5`；
+  以 `npm view @deepseek-ai/dsh dist-tags` 为准，写在文档里的数字必然会过期），
+  `npm i -E @deepseek-ai/<pkg>@<那一版>`。两个理由：`latest` dist-tag 按包不同、
+  多数子包还指着 0.0.1 老线，省略版本会装到与本树不兼容的包；而 alpha 一天能动几次，
+  `^` 会让两次 `npm install` 装出不同的树。升级 = 改 package.json 里那一串数字后
+  `rm -rf node_modules package-lock.json && npm install`，然后 `npm test` + 无钥烟测
+  + **带钥烟测** + eval。带钥那条不能省：`summarize` 只有真跑完一轮才会被走到，
+  alpha.4 删 `Session.events` 那次，无钥烟测在它之前就退出了，只有带钥才会暴露。
 - **后台执行面在工具层整体关闭**：`toolJobs: false` + `toolBash.enableRunInBackground:
   false` + subagent 走 `one-shot`，`tool-subagent-control`/`-report` 不挂。一次性
   CLI 退出时 dispose 整棵树，树外存活的工作必然被带走；与其让 persona 劝模型别用
