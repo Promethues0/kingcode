@@ -326,9 +326,19 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。
 `127.0.0.1:3081`**，不再先弹地址页；cookie 有 30 天、签名密钥又落在
 `$DSH_HOME/.credentials.yaml` 里跨引擎重启保留，所以换过一次 cookie 之后就是「点图标直接进」
 （真机验过：`aa force-stop` 后重新拉起，地址页不出现、直接是工作区）。地址页降级成纯错误
-兜底——只有连不上／401／403 才翻出来，右上角那枚「改地址」按钮也去掉了。**做不到的那半件**：
-壳不能像 mac/win 那样自己 spawn 引擎（应用沙箱起不了 Node，HiShell 里也没有 `aa`/`bm` 让
-`kc-hmos` 反过来拉起本应用），所以引擎仍要先在 HiShell 里 `kc-hmos start`。
+兜底——只有连不上／401／403 才翻出来，右上角那枚「改地址」按钮也去掉了。引擎没起来时壳不再报错，而是**守着**：每 3 秒敲一次门（最多 5 分钟），用户去开一次终端
+（`kc-hmos autostart on` 的钩子把引擎带起来）之后它自己就连上了，不用回来点任何按钮。
+
+**「点 KingCode 图标自动拉起终端」这条做不到，三条路都在真机上试死了**（2026-09-03，
+证据与日志见 `harmony/entry/src/main/ets/pages/Index.ets` 里的注释）：
+1. 让引擎跑在 hdc 的 shell 域（不受 HiShell 生死影响）——SELinux 拒绝 `sh` 域执行
+   `data_local_tmp` 标签的任何文件，把 node 拷进 `/data/local/tmp` 并 chmod 755 之后仍然
+   `Permission denied`，连 toybox 拷过去都跑不了；`/data` 本身没有 noexec，是策略拦的。
+2. 让引擎跑在本应用沙箱里——normal_hap 域起不了 Node。
+3. 让本应用 `startAbility` 拉起 HiShell——调用返回成功、窗管也真建了 session，但 HiShell
+   在 200~240 ms 后自己干净退出（appspawn `exit with code:0`），死因是它自己的
+   `HiShellFsUtil: writeConfig failed … path is: unspecified/…`；补 `moduleName` 也一样死。
+   反方向同样不通：HiShell 的 PATH 里没有 `aa`/`bm`，`/system/bin` 对它是 Permission denied。
 
 **引擎的生命周期绑死在 HiShell 上**（09-03 实测）：切后台没事，但关掉 HiShell 窗口或 force-stop，引擎立刻死——`setsid` 让它自成会话、被 init 收养也挡不住，鸿蒙在应用终止时收走整个沙箱进程组。所以正常形态是「窗口留着、切后台」，开机自启也只能做到「自动打开 HiShell 并拉起引擎」。「应用沙箱里没有 Node」这句对 normal_hap 域仍成立，对整台机器不成立。
 

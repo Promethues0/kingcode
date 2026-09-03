@@ -28,12 +28,19 @@
 // 不接的话用户只会看到一行英文纯文本，地址页根本不出现。
 import { webview } from '@kit.ArkWeb';
 import { preferences } from '@kit.ArkData';
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const PREFS_NAME = 'kingcode';
 const KEY_URL = 'engineUrl';
 // 原生形态的默认引擎地址。端口与 kc-hmos 的 KC_PORT 默认值一致。
 const DEFAULT_ENGINE = 'http://127.0.0.1:3081';
+// 连不上引擎时不报错、改成守候：用户去打开一次终端（`kc-hmos autostart on` 的钩子会
+// 把引擎带起来），这边每 3 秒敲一次门，起来了自己就进去了，不用再回来点什么。
+// 上限放到 5 分钟——引擎首启要装配整棵插件树，慢机器上一分钟打不住。
+const BOOT_TRIES = 100;
+const BOOT_INTERVAL_MS = 3000;
 
 @Entry
 @Component
@@ -43,7 +50,14 @@ struct Index {
   @State draft: string = 'http://';
   @State editing: boolean = true;
   @State mainFrameError: string = '';
+  @State booting: string = '';           // 非空 = 正在自动拉引擎，显示等待页
   private prefs?: preferences.Preferences;
+  private bootTries: number = 0;
+  private bootAsked: boolean = false;    // 守候链只起一条
+  // 本次加载有没有失败过。**不能拿 onPageEnd 当成功信号**：加载失败时 ArkWeb 会渲染
+  // 自己的错误页，onPageEnd 照样触发——第一版就是这么把守候面板提前撤掉的，
+  // 结果用户对着一页白屏没有任何出路。
+  private attemptFailed: boolean = false;
 
   async aboutToAppear(): Promise<void> {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -60,6 +74,79 @@ struct Index {
     this.engineUrl = DEFAULT_ENGINE;
     this.draft = DEFAULT_ENGINE;
     this.editing = false;
+  }
+
+  private ctx(): common.UIAbilityContext {
+    return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  /// 连不上本机引擎时的自愈：引擎只能活在 HiShell 里，而 HiShell 会被系统在后台回收，
+  /// 所以「让用户自己留着一个终端窗口」不是个能用的方案。这里壳自己把 HiShell 拉起来
+  /// ——`kc-hmos autostart on` 在 ~/.zshrc 里的钩子会顺手把引擎带起来——然后每 3 秒
+  /// 重试一次加载，最多 60 秒。拉完立刻把自己切回前台，免得用户对着一个终端发愣。
+  ///
+  /// 只对 loopback 生效：虚拟机形态的引擎不在本机 HiShell 里，拉它没有意义。
+  private isLocalEngine(): boolean {
+    return this.engineUrl.indexOf('127.0.0.1') >= 0 || this.engineUrl.indexOf('localhost') >= 0;
+  }
+
+  /// **为什么不由壳自己去拉起 HiShell** —— 2026-09-03 在真机上把三条路都试死了，
+  /// 记在这里免得以后有人再来一遍：
+  ///
+  /// 1. **让引擎跑在 hdc 的 shell 域**（uid 2000，不受 HiShell 生死影响）：SELinux 拒绝
+  ///    `sh` 域执行 `data_local_tmp` 标签的任何文件——把 node 拷进 /data/local/tmp、
+  ///    chmod 755 之后仍然 `Permission denied`，连 toybox 拷过去都跑不了。/data 本身
+  ///    没有 noexec，是策略拦的。
+  /// 2. **让引擎跑在本应用的沙箱里**：normal_hap 域起不了 Node。
+  /// 3. **让本应用 startAbility 拉起 HiShell**：调用返回成功、窗管也真的建了 session
+  ///    （`SCBSceneMissionManager --> startSceneTransition, to: EntryAbility/
+  ///    com.huawei.hmos.hishell/entry/0`），但 HiShell 在 200~240 毫秒后自己干净退出
+  ///    （appspawn `exit with code:0`），死因是它自己的
+  ///    `HiShellFsUtil: writeConfig failed ... path is: unspecified/…`——它把自己的
+  ///    模块解析成了 unspecified。Want 里补 moduleName: 'entry' 也一样死，所以不是
+  ///    我们这边少传参数，是 HiShell 只认启动器/shell 域那种调用方。闭源，改不了。
+  ///
+  /// 于是只剩这条：**守着**。用户去开一次终端，这边自动连上。
+
+  /// 定时重试加载。成功与否由 onPageEnd / onErrorReceive 决定，这里只负责再敲一次门。
+  private scheduleRetry(): void {
+    setTimeout(() => {
+      if (this.booting.length === 0) { return; }   // 已经好了或者已经放弃
+      this.bootTries++;
+      if (this.bootTries > BOOT_TRIES) {
+        this.booting = '';
+        this.mainFrameError = `等了 ${Math.round(BOOT_TRIES * BOOT_INTERVAL_MS / 60000)} 分钟，` +
+          `${this.engineUrl} 还是连不上。打开终端看一眼：kc-hmos status / kc-hmos doctor。`;
+        this.editing = true;
+        return;
+      }
+      this.booting = `引擎没在跑。去打开一次「终端」，这里会自动连上。（已等 ${this.bootTries * BOOT_INTERVAL_MS / 1000} 秒）`;
+      this.attemptFailed = false;
+      try { this.controller.loadUrl(this.engineUrl); } catch (ignored) { this.attemptFailed = true; }
+      // **自己排下一轮**，别指望 onErrorReceive 每次都回调：loadUrl 打到一个死端口时
+      // 它不一定再触发一次，链就断在 1/20 上了（第一版就是这么卡住的）。
+      // 成功时 onPageEnd 会把 booting 清空，上面那个 early-return 会终止这条链。
+      this.scheduleRetry();
+    }, BOOT_INTERVAL_MS);
+  }
+
+  /// 主文档连不上时的入口：本机形态就自愈，其它形态照旧报错。
+  private onEngineUnreachable(detail: string): void {
+    if (!this.isLocalEngine()) {
+      this.mainFrameError = `连不上 ${this.engineUrl}（${detail}）。` +
+        '虚拟机形态：IP 可能变了，去虚拟机里跑 kingcode-web.sh url 重问地址，' +
+        'IP 变了还要 restart 一次服务（信任名单是启动快照）。';
+      this.editing = true;
+      return;
+    }
+    if (this.booting.length === 0) {
+      this.booting = '引擎没在跑。去打开一次「终端」，这里会自动连上。';
+      this.bootTries = 0;
+    }
+    if (!this.bootAsked) {
+      this.bootAsked = true;
+      this.scheduleRetry();      // 只在这里起一条链，后面它自己续
+    }
   }
 
   /// 存地址时去掉 `?token=`：token 是每个引擎进程一枚的一次性凭据，
@@ -135,11 +222,8 @@ struct Index {
           .onErrorReceive((e) => {
             // 只认主文档的失败；子资源 404 之类别把整页打成错误
             if (e.request.isMainFrame()) {
-              this.mainFrameError = `连不上 ${this.engineUrl}（${e.error.getErrorInfo()}）。` +
-                '本机形态：引擎多半没在跑——去 HiShell 里 kc-hmos start（注意那个窗口不能关）。' +
-                '虚拟机形态：IP 可能变了，去虚拟机里跑 kingcode-web.sh url 重问地址，' +
-                'IP 变了还要 restart 一次服务（信任名单是启动快照）。';
-              this.editing = true;
+              this.attemptFailed = true;
+              this.onEngineUnreachable(e.error.getErrorInfo());
             }
           })
           .onHttpErrorReceive((e) => {
@@ -150,6 +234,7 @@ struct Index {
               return;
             }
             const code: number = e.response.getResponseCode();
+            if (code === 401 || code === 403) { this.attemptFailed = true; this.booting = ''; }
             if (code === 401) {
               this.mainFrameError = '引擎在跑，但这台机器还没换过会话 cookie（或引擎的签名密钥变过）。' +
                 '在 HiShell 里跑 kc-hmos url，把打印出来的那条完整地址（含 ?token=）贴进来。' +
@@ -163,6 +248,10 @@ struct Index {
             }
           })
           .onPageEnd(() => {
+            // 只有「这一轮没报过错」才算真连上。失败页也会走到这里，见 attemptFailed 的注释。
+            // 401 同样会到这里（HTTP 层算加载成功），但 onHttpErrorReceive 紧接着把
+            // editing 翻起来，那条路自有提示。
+            if (!this.attemptFailed) { this.booting = ''; }
             // ArkWeb 的 cookie 是每 30 秒周期性落盘的。换到 cookie 之后如果 30 秒内
             // 应用被杀（或者被 aa force-stop 掉），那枚 cookie 就丢了，下次开又是 401。
             // 页面加载完就强制落一次盘，把这个窗口关掉。
@@ -170,6 +259,38 @@ struct Index {
               webview.WebCookieManager.saveCookieSync();
             } catch (ignored) { /* 落盘失败不影响本次会话，下个周期还会再试 */ }
           })
+
+        // **守候面板必须盖在 Web 上，不能替换它**：第一版把 Web 整个换掉了，
+        // controller 没挂载，重试用的 loadUrl 全是空炮——真机上引擎明明起来了，
+        // 面板还在数秒数（数到 105 秒）。Stack 后声明的节点在上层，正好盖住。
+        if (this.booting.length > 0) {
+          // 引擎没起来时 Web 底下是一页错误内容，面板必须用不透明背景整个盖住
+          Column({ space: 16 }) {
+            Text('KingCode')
+              .fontSize(34)
+              .fontWeight(FontWeight.Bold)
+            Text(this.booting)
+              .fontSize(14)
+              .opacity(0.7)
+              .textAlign(TextAlign.Center)
+            Text('引擎跑在系统自带的「终端」里——HarmonyOS 的应用沙箱起不了 Node，\n' +
+                 '本应用也没法替你把终端拉起来（试过，系统不让）。\n' +
+                 '装过 kc-hmos autostart on 的话，打开终端它就会自己把引擎带起来；\n' +
+                 '终端窗口切到后台就行，但别关——关了引擎跟着死。')
+              .fontSize(13)
+              .opacity(0.45)
+              .textAlign(TextAlign.Center)
+            Button('直接填地址')
+              .width(160)
+              .backgroundColor('#00000000')
+              .fontColor('#3478f6')
+              .onClick(() => { this.booting = ''; this.editing = true; })
+          }
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Color.White)
+          .justifyContent(FlexAlign.Center)
+        }
         // 刻意**不放**「改地址」按钮：地址页是错误兜底，不是常驻入口。
         // 需要改地址的三种情况（引擎没起 / 401 / 403）下面三个回调都会自动把它翻出来，
         // 用户不需要、也不应该主动去找它——那只会让人以为每次都得填点什么。
