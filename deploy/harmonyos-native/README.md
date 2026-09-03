@@ -112,6 +112,29 @@ curl 走过的链：`GET /` 401 → `GET /?token=…` 303 + Set-Cookie → 带 c
 引擎重启后壳不会自动重连（旧 WebSocket 断着），点一次「连接异常，点击立即重连」即可——
 cookie signing secret 落盘在 `$DSH_HOME/.credentials.yaml`，所以**重启不用重贴带 token 的地址**。
 
+## 引擎的生命周期绑死在 HiShell 上（2026-09-03 实测）
+
+三档对照，`nohup` 与 `setsid` 都试过：
+
+| 操作 | 引擎 | 端口 3081 |
+|---|---|---|
+| HiShell 切到后台（比如切去用鸿蒙壳） | **活着** | 仍 LISTEN |
+| 关掉 HiShell 窗口（点标题栏的 ✕） | **立刻死** | 连 TIME_WAIT 都不留 |
+| `aa force-stop com.huawei.hmos.hishell` | **立刻死** | TIME_WAIT 后消失 |
+
+即使用 `setsid` 让引擎自成会话、父进程被 init 收养（实测 `ppid=1`、`sid` 等于自身 pid），
+也挡不住——鸿蒙在应用终止时收走整个应用沙箱的进程组，跟 POSIX 那套「脱离控制终端就活得下去」
+不是一回事。
+
+两条推论：
+
+- **正常使用形态是「HiShell 窗口留着、切后台」**，不是「起完就关」。B 级那次在壳里发消息拿到
+  真回答，全程 HiShell 就在后台。
+- **开机自启在这条路上意义有限**：没有任何载体能让引擎脱离 HiShell 活着，能做的最多是
+  「开机后自动打开 HiShell 并在里面拉起引擎」，窗口仍然必须留着。参考项目里那套四层钩子
+  （/etc/profile、.zshenv、.zshrc、XDG autostart）解决的是「怎么自动跑起来」，
+  解决不了「窗口关了怎么办」。
+
 ## 未做 / 未验
 
 - B 级还差最后一步：壳里选工作区、发一条真消息（见上「续跑起点」）；「连接异常」首次出现的原因未查（重连后消失）；
@@ -119,6 +142,6 @@ cookie signing secret 落盘在 `$DSH_HOME/.credentials.yaml`，所以**重启�
 - 从零 `npm ci --ignore-scripts` 的顺序未复跑。
 - 本地编译的 `.node` 在这台机器上能 dlopen（node-pty 已证）；别的套件记录的 Merkle 签名要求
   没有在这里遇到。
-- 关掉 HiShell 窗口后进程是否存活、开机自启，未验。
+- ~~关掉 HiShell 窗口后进程是否存活~~ —— **已验（2026-09-03），答案是不存活**，见下节。
 - 上游只开 Discussions：值得提的三件是 openharmony 当 POSIX 认、link EPERM 回落 rename、
   koffi 改懒加载——合入后 ①②③④ 都不再需要。
