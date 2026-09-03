@@ -339,6 +339,13 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。
    在 200~240 ms 后自己干净退出（appspawn `exit with code:0`），死因是它自己的
    `HiShellFsUtil: writeConfig failed … path is: unspecified/…`；补 `moduleName` 也一样死。
    反方向同样不通：HiShell 的 PATH 里没有 `aa`/`bm`，`/system/bin` 对它是 Permission denied。
+4. 走 HiShell 的 **FileOpen skill**（`bm dump` 看到它的 EntryAbility 声明了
+   `action=ohos.want.action.viewData` + `scheme=file` + `type=general.shell-script` +
+   `linkFeature=FileOpen`，本以为是绕开上面那个崩溃的另一个入口）——从应用发这条 want，
+   HiShell 同样起不来；从 hdc 发，HiShell 能活但**并不执行**那个脚本，只是把窗口切到前台。
+   三种 URI 形式都试过。
+5. 让**系统开机自启终端**——设备上没有 XDG autostart 目录，`settings list` 里没有任何
+   boot/startup/autostart 项，设置应用的 13 个 ability 里也没有「启动管理／后台保活」入口。
 
 **引擎的生命周期绑死在 HiShell 上**（09-03 实测）：切后台没事，但关掉 HiShell 窗口或 force-stop，引擎立刻死——`setsid` 让它自成会话、被 init 收养也挡不住，鸿蒙在应用终止时收走整个沙箱进程组。所以正常形态是「窗口留着、切后台」，开机自启也只能做到「自动打开 HiShell 并拉起引擎」。「应用沙箱里没有 Node」这句对 normal_hap 域仍成立，对整台机器不成立。
 

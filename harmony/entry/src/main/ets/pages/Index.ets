@@ -28,7 +28,7 @@
 // 不接的话用户只会看到一行英文纯文本，地址页根本不出现。
 import { webview } from '@kit.ArkWeb';
 import { preferences } from '@kit.ArkData';
-import { common, Want } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
@@ -105,6 +105,15 @@ struct Index {
   ///    `HiShellFsUtil: writeConfig failed ... path is: unspecified/…`——它把自己的
   ///    模块解析成了 unspecified。Want 里补 moduleName: 'entry' 也一样死，所以不是
   ///    我们这边少传参数，是 HiShell 只认启动器/shell 域那种调用方。闭源，改不了。
+  /// 4. **走 HiShell 的 FileOpen skill**（`bm dump` 看到它的 EntryAbility 声明了
+  ///    `action=ohos.want.action.viewData` + `scheme=file` + `type=general.shell-script`
+  ///    + `linkFeature=FileOpen`，本以为是另一条能绕开上面那个崩溃的入口）：从应用发
+  ///    这条 want，HiShell 同样起不来；从 hdc 发，HiShell 能活但**并不执行**那个脚本，
+  ///    只是把窗口切到前台。三种 URI 形式（`file:///…`、`file://docs/…`、
+  ///    `file:///storage/media/…`）都试过，都不执行。
+  /// 5. **让系统开机自启终端**：设备上没有 XDG autostart 目录，`settings list` 里没有
+  ///    任何 boot/startup/autostart 项，设置应用的 13 个 ability 里也没有「启动管理 /
+  ///    后台保活」这类入口。参考项目那套四层钩子自陈 1-3 分钟延迟且常要手工开一次终端。
   ///
   /// 于是只剩这条：**守着**。用户去开一次终端，这边自动连上。
 
