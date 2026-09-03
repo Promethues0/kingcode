@@ -305,12 +305,18 @@ ArkTS + ArkWeb 壳，角色与 `mac/`、`win/` 相同：桌面图标、独立窗
 
 构建：DevEco Studio 打开 `harmony/`，登录华为账号 → Project Structure → Signing
 Configs 勾自动签名（仓库不携带签名材料，`signingConfigs` 是空的；调试证书绑定
-bundleName 与设备 UDID，只能现场生成），连上真机点 Run。命令行构建见
-`deploy/harmonyos-pc/README.md`。
+bundleName 与设备 UDID，只能现场生成），连上真机点 Run。
+
+**没有命令行构建路径**：仓库里没有 `hvigorw`（也没有 `hvigorw.bat` / `hvigor-wrapper.js`），
+所以只能走 DevEco Studio 的 GUI，而 DevEco 没有鸿蒙 PC 版——**目标机器自己造不出这个 hap**，
+要另一台 Windows 或 macOS 电脑。另外这个 hap 也**无法分发**：调试签名绑设备 UDID
+（100 台/年上限），未签名装机报 `9568320`，发布证书签的走 `hdc install` 报 `9568322`，
+「任何人下载即可装」只有应用市场或 AGC 内测那条路。别人要用壳，得改掉
+`AppScope/app.json5` 里的 `bundleName`（`com.kingcode.client` 已被占用）再自己签。
 
 ## 鸿蒙 PC（原生，HiShell）
 
-不经虚拟机的第二条路：引擎直接跑在鸿蒙 PC 自带终端（HiShell）里，Node 是 Harmonybrew 装的原生 `platform=openharmony` 构建。**A 级（CLI）与 B 级（Web + 鸿蒙壳连 127.0.0.1）都已在真机全通**：A 级 09-02——组合树 boot 成功、无钥烟测恰好死在 `MISSING_CREDENTIAL`、带钥 `say hi` 退出码 0、bash 工具经 node-pty 跑出 `HongMeng Kernel 1.13.0`、grep 工具经 ripgrep 出结果；B 级 09-03——全局 dsh 在 HiShell 起服务，壳连 `http://127.0.0.1:3081/?token=…` 加载出工作区并发消息拿到带 2 次工具调用的真回答。要打五处 node_modules 补丁（koffi 桩、终端检查器、两处 link→rename、ripgrep 平台包），外加 `DSH_HOME` 放 el2、`KINGCODE_LSP=0`；B 级另需 `DSH_PERMISSION_MODE=danger-full-access`（沙箱后端在鸿蒙都不可用、受限模式 fail-closed）与 **`node --expose-internals` 起 dsh**（`cordis-plugin-loader` 靠 `node-addon-require-builtin` 拿内部 ESM 加载器解析 profile 包，那个 addon 没有 openharmony 构建）。脚本与真机事实在 [`deploy/harmonyos-native/`](deploy/harmonyos-native/README.md)。
+不经虚拟机的第二条路：引擎直接跑在鸿蒙 PC 自带终端（HiShell）里，Node 是 Harmonybrew 装的原生 `platform=openharmony` 构建。**A 级（CLI）与 B 级（Web + 鸿蒙壳连 127.0.0.1）都已在真机全通**：A 级 09-02——组合树 boot 成功、无钥烟测恰好死在 `MISSING_CREDENTIAL`、带钥 `say hi` 退出码 0、bash 工具经 node-pty 跑出 `HongMeng Kernel 1.13.0`、grep 工具经 ripgrep 出结果；B 级 09-03——全局 dsh 在 HiShell 起服务，壳连 `http://127.0.0.1:3081/?token=…` 加载出工作区并发消息拿到带 2 次工具调用的真回答。要打五处 node_modules 补丁（koffi 桩、终端检查器、两处 link→rename、ripgrep 平台包），外加 `DSH_HOME` 放 el2、`KINGCODE_LSP=0`；B 级另需 `DSH_PERMISSION_MODE=danger-full-access`（沙箱后端在鸿蒙都不可用、受限模式 fail-closed）与 **`node --expose-internals` 起 dsh**（`cordis-plugin-loader` 靠 `node-addon-require-builtin` 拿内部 ESM 加载器解析 profile 包，那个 addon 没有 openharmony 构建）。脚本与真机事实在 [`deploy/harmonyos-native/`](deploy/harmonyos-native/README.md)；**面向外部用户的一键脚本（`kc-hmos`）与安装部署说明独立维护在** <https://github.com/Promethues0/kingcode-deepseekharness-harmonyos>（本仓库里没有 `kc-hmos`——鸿蒙壳的错误提示引用的就是那个仓库里的命令）。
 
 **引擎的生命周期绑死在 HiShell 上**（09-03 实测）：切后台没事，但关掉 HiShell 窗口或 force-stop，引擎立刻死——`setsid` 让它自成会话、被 init 收养也挡不住，鸿蒙在应用终止时收走整个沙箱进程组。所以正常形态是「窗口留着、切后台」，开机自启也只能做到「自动打开 HiShell 并拉起引擎」。「应用沙箱里没有 Node」这句对 normal_hap 域仍成立，对整台机器不成立。
 

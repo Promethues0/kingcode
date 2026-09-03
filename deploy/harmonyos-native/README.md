@@ -77,7 +77,7 @@ node-pty 用本机 clang 现编（Harmonybrew 没有 llvm/clang formula，`ohos-
 
 ## B 级（Web 形态原生 + 鸿蒙壳连 127.0.0.1）——2026-09-03 已通
 
-**B 级已通（2026-09-03 09:38）**：全局 dsh alpha.3 在 HiShell 里装通并 boot 成功，鸿蒙壳
+**B 级已通（2026-09-03 09:38，跑的是全局 dsh alpha.3；仓库随后升到 alpha.5，五处补丁的锚点已在 alpha.5 上逐字复核且唯一，但 B 级链路本身没在 alpha.5 上复跑）**：全局 dsh 在 HiShell 里装通并 boot 成功，鸿蒙壳
 （com.kingcode.client）连 `http://127.0.0.1:3081/?token=…` 加载出完整工作区，并在壳里发一条真消息
 拿到回答——2 次工具调用，bash 经 node-pty 回 `HongMeng Kernel 1.13.0 … aarch64 Toybox`，grep 经
 ripgrep 数出 README 里 26 行；20K token / 11 秒 / 89 tok/s / 缓存命中 46%（DeepSeek-V4-Pro High，
@@ -87,7 +87,7 @@ ripgrep 数出 README 里 26 行；20K token / 11 秒 / 89 tok/s / 缓存命中 
 
 | 事 | 真机事实 | 做法 |
 |---|---|---|
-| 安装 | `npm i -g @deepseek-ai/dsh@0.1.2-alpha.3` 会在 koffi 的 postinstall 上失败 | `--ignore-scripts` 装完，再 `cd ~/.harmonybrew/lib/node_modules/@deepseek-ai/dsh && CC=clang CXX=clang++ npm rebuild node-pty` |
+| 安装 | `npm i -g @deepseek-ai/dsh@0.1.2-alpha.5`（**必须钉版**：latest 指着 0.1.1-rc.2，那条线没有会话认证）会在 koffi 的 postinstall 上失败 | `--ignore-scripts` 装完，再 `cd ~/.harmonybrew/lib/node_modules/@deepseek-ai/dsh && CC=clang CXX=clang++ npm rebuild node-pty` |
 | sharp | `dsh-attachment-local` 加载期 require sharp；设备上 `npm install @img/sharp-wasm32@0.35.4` 回 404 | 从开发机全局树打包 `@img/sharp-wasm32` + `@emnapi/runtime` + `tslib` 三个目录（tar 时路径写 `./@img/...`，裸 `@` 会被 bsdtar 当归档指令）解到全局 node_modules |
 | 补丁 | 全局树多 `dsh-attachment-local` 的 link() 与 `dsh-win32-process` 加载期的两个结构体大小断言 | `patch-node-modules.sh --root <全局 node_modules>`（桩里带大小表） |
 | **profile 包解析** | 起服务报 `Cannot find package 'kingcode-web-brand'`——`cordis-plugin-loader` 靠 `--expose-internals` 或 `node-addon-require-builtin` 拿 Node 内部加载器来解析 profile 里的包，后者没有 openharmony 构建，退化后 profile 包解析不到（09-01 那次也是这个） | **用 `node --expose-internals <dsh 的 bin.js> --profile kingcode --port 3081 --no-open` 起**，profile 包立刻解析到 |
