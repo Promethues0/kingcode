@@ -79,6 +79,24 @@ const assistant = (seq, text) => ({
   eq(outcome.reason?.error?.code, 'AUTH', 'error reason 带 code 透出')
 }
 
+{
+  // 上游两代读接口都要能读。dsh 0.1.2-alpha.4 删掉了 `Session.events` 这个数组
+  // getter，换成 seq + eventAt()/snapshotEvents()；仓库现在钉 alpha.3（还有 events），
+  // 升级时不该因为这个再炸一次。两种形状喂同一批事件，结果必须一致。
+  const events = [
+    { seq: 1, type: 'turn/start' },
+    assistant(2, '同一个回答'),
+    { seq: 3, type: 'turn/end', data: { reason: { kind: 'completed' } } },
+  ]
+  const alpha3 = { events }                                    // 老形状：数组 getter
+  const alpha4 = { get seq() { return 4 }, snapshotEvents: () => events.slice() } // 新形状
+  eq(summarize(alpha3, 1).text, '同一个回答', 'summarize 读得了 alpha.3 的 session.events')
+  eq(summarize(alpha4, 1).text, '同一个回答', 'summarize 读得了 alpha.4 的 session.snapshotEvents()')
+  eq(summarize(alpha4, 1).reason?.kind, 'completed', '新形状同样取得到收敛原因')
+  // 两个都没有时不许抛——真炸在收尾处只会把已经拿到的回答一起丢掉
+  eq(summarize({}, 0).text, '', '两代接口都没有时返回空结果而不是抛异常')
+}
+
 // ---- exitCodeFor ----
 
 eq(exitCodeFor({ text: '回答', reason: { kind: 'completed' } }), 0, '完成且有输出 → 0')
@@ -237,10 +255,19 @@ function fakeTree({ hang = false, onFollowup } = {}) {
   let listener = null
   let idleCount = 0
 
+  // 假 session 按 **alpha.4 的形状**造：`seq` + `eventAt()` / `snapshotEvents()`，
+  // 刻意**不提供**已被上游删掉的 `events` 数组 getter。这样 run() 全程走的是新读
+  // 接口——上一版这个假对象把 events 伪造成普通数组，于是 alpha.4 删掉真 getter 时
+  // 整套测试照样全绿，而带钥运行会在收尾处 TypeError。这类「上游删 API」只有让假
+  // 对象跟着上游的形状走才拦得住。
+  const log = []
   const session = {
     id: undefined, // agents.create 时回填
-    seq: 0,
-    events: [],
+    get seq() { return log.length },
+    // 真 Session 按 seq 索引；测试里 seq 与下标一致，但按字段找更耐得住乱序
+    eventAt: (seq) => log.find(event => event.seq === seq),
+    snapshotEvents: () => log.slice(),
+    push: (...events) => log.push(...events), // 只给测试用，真 Session 没有这个
   }
   const agent = {
     session,
@@ -251,7 +278,7 @@ function fakeTree({ hang = false, onFollowup } = {}) {
     },
     followup: () => {
       onFollowup?.({
-        push: (...events) => session.events.push(...events),
+        push: (...events) => session.push(...events),
         emit: (event, sess = session) => listener?.(sess, event),
       })
     },
@@ -374,7 +401,7 @@ async function checkDeadline() {
   await withFakeTree(tree, async () => {
     apply(tree.ctx, { task: '一个跑不完的任务' })
     for (let i = 0; i < 20 && !tree.hasListener(); i++) await new Promise(r => setImmediate(r))
-    tree.session.events.push({ seq: 0, type: 'turn/start', data: { turn: 1 } })
+    tree.session.push({ seq: 0, type: 'turn/start', data: { turn: 1 } })
     await tree.exited
   })
   eq(tree.calls.exitCode, DEADLINE_EXIT_CODE, 'deadline 到点 → 退出码 4')
@@ -424,7 +451,7 @@ async function checkSignalWindDown() {
     check(process.listenerCount('SIGTERM') === before + 1, 'run() 在真 process 上装了 SIGTERM 处理器',
       `before=${before} after=${process.listenerCount('SIGTERM')}`)
     check(process.listenerCount('SIGINT') >= 1, 'run() 在真 process 上装了 SIGINT 处理器')
-    tree.session.events.push(
+    tree.session.push(
       { seq: 0, type: 'turn/start', data: { turn: 1 } },
       { seq: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } } },
     )

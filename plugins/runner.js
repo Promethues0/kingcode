@@ -82,16 +82,37 @@ export const internals = {
 }
 
 /**
+ * 读出一个会话的事件数组，兼容上游两代读接口。
+ *
+ * dsh 0.1.2-alpha.4 把 `Session.events` 这个数组 getter **删掉**了，换成
+ * `seq` + `eventAt()` / `snapshotEvents()` / `ownEvents()` 一组带品牌类型的读接口
+ * （上游自己的 dsh-headless 同时把 summarize 改成收 session 而不是数组）。
+ * 仓库现在钉 alpha.3、还有 `events`；升到 alpha.4 就只剩新接口。两版都要能跑，
+ * 所以在这里收口：有 `snapshotEvents` 就用它（无参 = 从 0 到当前 seq 的整段快照），
+ * 否则退回老的 `events`。
+ *
+ * 也接受直接传进来的事件数组——单元测试就是这么用的。
+ *
+ * @param source - Session 对象，或直接就是事件数组。
+ * @returns 事件数组（可能是快照副本，只读着用）。
+ */
+function readEvents(source) {
+  if (Array.isArray(source)) return source
+  if (typeof source?.snapshotEvents === 'function') return source.snapshotEvents()
+  return source?.events ?? []
+}
+
+/**
  * 从本轮事件里汇总最后一条助手文本与收敛原因。
- * @param events - 会话事件流。
+ * @param source - 会话对象（或事件数组，见 {@link readEvents}）。
  * @param firstSeq - 本轮开始时的序号，之前的都不算。
  * @returns 最终文本与结束原因。
  */
-export function summarize(events, firstSeq) {
+export function summarize(source, firstSeq) {
   let started = false
   let text = ''
   let reason
-  for (const event of events) {
+  for (const event of readEvents(source)) {
     if (event.seq < firstSeq) continue
     if (event.type === 'turn/start') { started = true; continue }
     if (!started) continue
@@ -339,7 +360,7 @@ async function run(ctx, task, io) {
       io.stderr.write(`kingcode: 会话 flush 失败：${error instanceof Error ? error.message : String(error)}\n`)
     }
 
-    const outcome = summarize(agent.session.events, firstSeq)
+    const outcome = summarize(agent.session, firstSeq)
     progress.note(`收尾完成：${ending.label}，共 ${(progress.elapsed() / 1000).toFixed(1)}s，`
       + `会话 ${sessionId}，收敛原因 ${outcome.reason?.kind ?? '无（轮次未闭合）'}`)
     io.stderr.write(`kingcode: ${ending.label}——本次没有最终回答，stdout 为空；`
@@ -395,7 +416,7 @@ async function run(ctx, task, io) {
   clearTimeout(deadlineTimer)
   await sessions.flush(agent.session)
 
-  const outcome = summarize(agent.session.events, firstSeq)
+  const outcome = summarize(agent.session, firstSeq)
   const exitCode = exitCodeFor(outcome)
   progress.note(`完成：${(progress.elapsed() / 1000).toFixed(1)}s，`
     + `${outcome.reason?.kind ?? '无收敛原因'}，回答 ${outcome.text.length} 字，退出码 ${exitCode}`)
