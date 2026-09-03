@@ -18,5 +18,14 @@ export TMPDIR="${TMPDIR:-$HOME}"
 # node-gyp 取 node headers 走 disturl，**不跟 npm registry**——它是全流程里唯一一个
 # 既不受 KC_REGISTRY 管、又必须出网的下载，而这条路上要现编两次 node-pty。
 # 姊妹路径 deploy/harmonyos-pc/install.sh 早就有这个旋钮，原生路线以前没有。
-if [ -n "${KC_NODE_DISTURL:-}" ]; then export npm_config_disturl="$KC_NODE_DISTURL"; fi
+#
+# 两个变量都要设：npm 11 已经把 `npm_config_disturl` 判为未知配置（每条 npm 命令都会
+# 打一行 `npm warn Unknown env config "disturl"`，并声明下个大版本停止支持），而
+# node-gyp 自己一直认 NODEJS_ORG_MIRROR。设两个既照顾现在也照顾以后。
+# 镜像形状：<base>/v<版本>/node-v<版本>-headers.tar.gz，
+# 例如 KC_NODE_DISTURL=https://registry.npmmirror.com/-/binary/node
+if [ -n "${KC_NODE_DISTURL:-}" ]; then
+  export npm_config_disturl="$KC_NODE_DISTURL"
+  export NODEJS_ORG_MIRROR="$KC_NODE_DISTURL"
+fi
 mkdir -p "$DSH_HOME" && chmod 700 "$DSH_HOME"
