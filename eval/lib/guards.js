@@ -205,7 +205,7 @@ export function findSessionFile(sessionsRoot, sessionId) {
 // 子代理不是父会话里的几条事件，而是**另一份 session.jsonl**：同一个
 // persistence root 下另开一个目录，首行长这样（读自真实会话，不是猜的）：
 //   {"type":"session","version":0,"id":"1167b76a-…","createdAt":…,
-//    "cwd":"/Users/prometheus/Projects/kingcode",
+//    "cwd":"/home/you/kingcode",
 //    "parentSession":"session-a5fd33c7-…","origin":"subagent","delegationDepth":1}
 // 注意两件事：① 子会话的**目录名不带 `session-` 前缀**（就是裸 uuid），按前缀
 // 过滤会把它们整批漏掉；② 父子关系只能靠 `parentSession` 连，别按目录名猜。

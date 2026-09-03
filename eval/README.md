@@ -207,7 +207,7 @@ prepare / grade 抛出的任何异常都记为 `harness-error`（堆栈打到 st
 
 ```json
 {"type":"session","version":0,"id":"1167b76a-…","createdAt":1787317336217,
- "cwd":"/Users/prometheus/Projects/kingcode","parentSession":"session-a5fd33c7-…",
+ "cwd":"/home/you/kingcode","parentSession":"session-a5fd33c7-…",
  "origin":"subagent","delegationDepth":1}
 ```
 

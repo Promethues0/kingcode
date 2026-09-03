@@ -95,7 +95,7 @@ COOKIE_JAR="$OUT/cookies.txt"
 WEB_LOG="${KINGCODE_STATE:-${DSH_HOME:-$HOME/.kingcode}/run}/web.log"
 
 # 从服务日志的**最后一条**就绪行里取 launch token。就绪行形如
-#   dsh web: http://127.0.0.1:3081/?token=XXX (LAN: http://10.11.39.141:3081/?token=XXX)
+#   dsh web: http://127.0.0.1:3081/?token=XXX (LAN: http://10.0.0.42:3081/?token=XXX)
 # 取最后一条：日志是追加的，重启过的话前面那些 token 早就失效了。
 launch_token() {
   grep -o 'token=[A-Za-z0-9_-]\{16,\}' "$WEB_LOG" 2>/dev/null | tail -1 | cut -d= -f2

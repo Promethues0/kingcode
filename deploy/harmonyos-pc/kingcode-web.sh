@@ -84,7 +84,7 @@ ENG_SIG='--profile kingcode'       # 引擎是 `node .../dsh/lib/bin.js --profil
 
 # 日志里最后一条就绪行，以及 dsh 在那一刻拍进 /api 信任名单的 LAN IP。
 # 就绪行长这样（alpha.2 起两半都带 token）：
-#   `dsh web: http://127.0.0.1:3081/?token=… (LAN: http://10.11.39.141:3081/?token=…)`
+#   `dsh web: http://127.0.0.1:3081/?token=… (LAN: http://10.0.0.42:3081/?token=…)`
 # ——只认 `LAN: http://` 后面那段数字，127.0.0.1 那半截永远匹配不上；
 # loopback 绑法的就绪行没有 LAN 半截，此时输出为空。
 last_ready_line() { grep "$READY_LINE" "$LOG" 2>/dev/null | tail -1; }

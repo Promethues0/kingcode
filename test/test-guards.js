@@ -6,7 +6,7 @@
  * session.jsonl**，首行带 parentSession / origin:"subagent" / delegationDepth，
  * 且**目录名不带 `session-` 前缀**（裸 uuid）。真实首行（读自本机会话，非杜撰）：
  *   {"type":"session","version":0,"id":"1167b76a-…","createdAt":1787317336217,
- *    "cwd":"/Users/prometheus/Projects/kingcode",
+ *    "cwd":"/home/you/kingcode",
  *    "parentSession":"session-a5fd33c7-…","origin":"subagent","delegationDepth":1}
  *
  * 守的是：递归收全部后代（不写死 maxDepth 1）、不按目录名前缀过滤、不越界收
