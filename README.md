@@ -351,7 +351,9 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。
    这些接口要 `ohos.permission.ENTERPRISE_MANAGE_APPLICATION`，带这条权限的 hap 装不上
    （`9568289 grant request permissions failed`），它要 MDM 企业签名
    （provision 的 `app-feature: hos_enterprise_mdm`），个人调试证书拿不到。
-   **有企业开发者账号的话这条是通的**——那是目前唯一能让终端由系统托管、用户完全不用管的正规路径。
+   **有企业开发者账号的话这条是通的**，已实现为 `harmony/mdm/` 套件（`./mdm.sh on` 打开、
+   扩展在 `onAdminEnabled` 里把终端加进开机自启+保活白名单；ArkTS 编译已过，只差 MDM 签名）——
+   那是目前唯一能让终端由系统托管、用户完全不用管的正规路径。步骤见 `harmony/mdm/README.md`。
 6. 让**系统开机自启终端**（不走 EDM）——设备上没有 XDG autostart 目录，`settings list` 里没有任何
    boot/startup/autostart 项，设置应用的 13 个 ability 里也没有「启动管理／后台保活」入口。
 

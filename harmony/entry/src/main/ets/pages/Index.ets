@@ -121,8 +121,9 @@ struct Index {
   ///      `9568289 install failed due to grant request permissions failed.`
   ///      `PermissionName: ohos.permission.ENTERPRISE_MANAGE_APPLICATION`
   ///    它要 MDM 企业签名（provision 的 `app-feature: hos_enterprise_mdm`），
-  ///    个人调试证书拿不到。**有企业开发者账号的话这条路是通的**，是目前唯一
-  ///    能做到「终端由系统托管、用户完全不用管」的正规出口。
+  ///    个人调试证书拿不到（装机报 9568289）。**有企业开发者账号的话这条路是通的**，
+  ///    已实现为 harmony/mdm/ 套件（扩展 onAdminEnabled 里把终端加进开机自启+保活白名单，
+  ///    ArkTS 编译已过，只差 MDM 签名）——是目前唯一能做到「终端由系统托管、用户完全不用管」的正规出口。
   /// 6. **让系统开机自启终端**（不走 EDM）：设备上没有 XDG autostart 目录，`settings list` 里没有
   ///    任何 boot/startup/autostart 项，设置应用的 13 个 ability 里也没有「启动管理 /
   ///    后台保活」这类入口。参考项目那套四层钩子自陈 1-3 分钟延迟且常要手工开一次终端。
