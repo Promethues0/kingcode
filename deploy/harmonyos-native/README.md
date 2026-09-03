@@ -76,9 +76,11 @@ node-pty 用本机 clang 现编（Harmonybrew 没有 llvm/clang formula，`ohos-
 
 ## B 级（Web 形态原生 + 鸿蒙壳连 127.0.0.1）——2026-09-02 深夜进展
 
-全局 dsh alpha.3 在 HiShell 里装通并 boot 成功，鸿蒙壳（com.kingcode.client）连 `http://127.0.0.1:3081/?token=…`
-加载出完整工作区（K 标与字标、侧栏、预设 KingCode、设置 → 模型页显示 DeepSeek「API 密钥已配置」）。
-还没走到「选工作区 → 发消息」那一步就因额度停下，见文末「续跑起点」。
+**B 级已通（2026-09-03 09:38）**：全局 dsh alpha.3 在 HiShell 里装通并 boot 成功，鸿蒙壳
+（com.kingcode.client）连 `http://127.0.0.1:3081/?token=…` 加载出完整工作区，并在壳里发一条真消息
+拿到回答——2 次工具调用，bash 经 node-pty 回 `HongMeng Kernel 1.13.0 … aarch64 Toybox`，grep 经
+ripgrep 数出 README 里 26 行；20K token / 11 秒 / 89 tok/s / 缓存命中 46%（DeepSeek-V4-Pro High，
+完全权限）。品牌层（K 标与字标）、KingCode 预设、设置 → 模型页「API 密钥已配置」都正常。
 
 在 A 级五处补丁之外，B 级多出四件：
 
@@ -103,10 +105,12 @@ curl 走过的链：`GET /` 401 → `GET /?token=…` 303 + Set-Cookie → 带 c
 `/favicon.svg` 200、`<title>KingCode</title>`（品牌层 host 半侧生效）。壳里第一次进页面底部有「连接异常」，点一次重连
 （页面重载、弹上游「内测声明」点「继续」）后消失，`/proc/net/tcp` 里能看到多条到 :3081 的 loopback 连接。
 
-**续跑起点**：壳里点「选择工作区」→「编辑路径」，路径框是 dialog 里 bounds `[637,557][1747,596]` 那个 textField
-（不是 `[583,518]` 的搜索框），填 `/storage/Users/currentUser/kingcode` → 回车 →「打开」；工作区选上后输入框才变成可编辑的
-textbox，再发一条要用 bash 工具的消息。驱动手法：`uitest uiInput text '<文字>'`（不带坐标）、回车 `keyEvent 2054`、
-全选删除 `keyEvent 2072 2017` + `2055`、`dumpLayout -b com.kingcode.client` 取 bounds。
+**自动化驱动的两条经验**（这次踩过）：① 系统 CapsLock 开着时 `uitest uiInput text` 输入整体大小写反转，
+`keyEvent 2074` 不一定改得动——改用 **`uitest uiInput inputText <x> <y> '<文本>'`**，按坐标直写、不走键盘、
+大小写如实；② Ctrl+A（`keyEvent 2072 2017`）在 WebView 里会选中整页并弹出上下文菜单，把后续输入全吃掉，
+别用它清输入框。取 bounds 用 `uitest dumpLayout -b com.kingcode.client`。
+引擎重启后壳不会自动重连（旧 WebSocket 断着），点一次「连接异常，点击立即重连」即可——
+cookie signing secret 落盘在 `$DSH_HOME/.credentials.yaml`，所以**重启不用重贴带 token 的地址**。
 
 ## 未做 / 未验
 
