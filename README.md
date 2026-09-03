@@ -265,11 +265,19 @@ dsh 在 Windows 上走 pwsh 栈而非 bash（`bash-sandbox`/`tool-bash` 与 `pws
 ## 鸿蒙客户端 `harmony/`
 
 ArkTS + ArkWeb 壳，角色与 `mac/`、`win/` 相同：桌面图标、独立窗口、记住引擎地址。
-**不内置引擎**（HarmonyOS 应用沙箱里没有 Node、起不了子进程），引擎照旧跑在融合
-开发引擎的虚拟机里；与 mac/win 壳的关键差异是它连的不是 127.0.0.1 而是**虚拟机的
-IP**——IP 每次开机可能变，所以壳把地址做成可改、可记、连不上时给出「去虚拟机跑
-`kingcode-web.sh url` 重问」的指引。已在 2in1 模拟器（HarmonyOS 6.0.2）上装载、
-连上引擎、加载出工作区验证过。
+**不内置引擎**——HarmonyOS 应用沙箱（normal_hap 域）里起不了 Node，这一条对沙箱成立、
+**对整机不成立**：鸿蒙 PC 自带的 HiShell 是 shell 域，那里能跑原生 Node（见上面「鸿蒙 PC（原生）」）。
+所以壳有两种连法：
+
+- **原生形态**：引擎就在本机 HiShell 里，连 `127.0.0.1`——没有 IP 漂移、不用绑 `0.0.0.0`、
+  loopback 还是安全上下文（剪贴板可用、设置面不降级成 memory）。推荐。
+- **虚拟机形态**：引擎在融合开发引擎的虚拟机里，连虚拟机 IP——那个 IP 每次开机可能变，
+  所以壳把地址做成可改、可记、连不上时给出「重问地址」的指引。
+
+两种形态都要过同一道会话认证（**loopback 也不豁免**）：首次填带 `?token=` 的完整地址换一枚
+30 天 cookie。壳接了 `onHttpErrorReceive`，401/403 会翻译成能照做的提示而不是白页。
+验证：2in1 模拟器（HarmonyOS 6.0.2）与真机（7.0.0.102 / API 26）都装载并加载出工作区；
+2026-09-03 在原生形态下（连 127.0.0.1）发消息拿到过带工具调用的真回答。
 
 构建：DevEco Studio 打开 `harmony/`，登录华为账号 → Project Structure → Signing
 Configs 勾自动签名（仓库不携带签名材料，`signingConfigs` 是空的；调试证书绑定
@@ -278,23 +286,25 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。命令
 
 ## 鸿蒙 PC（原生，HiShell）
 
-不经虚拟机的第二条路：引擎直接跑在鸿蒙 PC 自带终端（HiShell）里，Node 是 Harmonybrew 装的原生 `platform=openharmony` 构建。**A 级判据已在真机过（2026-09-02）**：整棵 CLI 组合树 boot 成功、无钥烟测恰好死在 `MISSING_CREDENTIAL`、`npm test` 全绿。要打五处 node_modules 补丁（koffi 桩、终端检查器、两处 link→rename、ripgrep 平台包），外加 `DSH_HOME` 放 el2、`KINGCODE_LSP=0`；脚本与真机事实在 [`deploy/harmonyos-native/`](deploy/harmonyos-native/README.md)。Web 形态（B 级）未做，卡在全局树的 sandbox-local 同样依赖 koffi。「应用沙箱里没有 Node」这句对应用沙箱域仍成立，对整台机器不成立。
+不经虚拟机的第二条路：引擎直接跑在鸿蒙 PC 自带终端（HiShell）里，Node 是 Harmonybrew 装的原生 `platform=openharmony` 构建。**A 级（CLI）与 B 级（Web + 鸿蒙壳连 127.0.0.1）都已在真机全通**：A 级 09-02——组合树 boot 成功、无钥烟测恰好死在 `MISSING_CREDENTIAL`、带钥 `say hi` 退出码 0、bash 工具经 node-pty 跑出 `HongMeng Kernel 1.13.0`、grep 工具经 ripgrep 出结果；B 级 09-03——全局 dsh 在 HiShell 起服务，壳连 `http://127.0.0.1:3081/?token=…` 加载出工作区并发消息拿到带 2 次工具调用的真回答。要打五处 node_modules 补丁（koffi 桩、终端检查器、两处 link→rename、ripgrep 平台包），外加 `DSH_HOME` 放 el2、`KINGCODE_LSP=0`；B 级另需 `DSH_PERMISSION_MODE=danger-full-access`（沙箱后端在鸿蒙都不可用、受限模式 fail-closed）与 **`node --expose-internals` 起 dsh**（`cordis-plugin-loader` 靠 `node-addon-require-builtin` 拿内部 ESM 加载器解析 profile 包，那个 addon 没有 openharmony 构建）。脚本与真机事实在 [`deploy/harmonyos-native/`](deploy/harmonyos-native/README.md)。
+
+**引擎的生命周期绑死在 HiShell 上**（09-03 实测）：切后台没事，但关掉 HiShell 窗口或 force-stop，引擎立刻死——`setsid` 让它自成会话、被 init 收养也挡不住，鸿蒙在应用终止时收走整个沙箱进程组。所以正常形态是「窗口留着、切后台」，开机自启也只能做到「自动打开 HiShell 并拉起引擎」。「应用沙箱里没有 Node」这句对 normal_hap 域仍成立，对整台机器不成立。
 
 ## 鸿蒙 PC（融合开发引擎）
 
 鸿蒙电脑上装的是**引擎本体，不是瘦客户端**：华为的「融合开发引擎」提供一键 openEuler（Linux 6.6、aarch64）环境，有终端有包管理，所以 bash / git / tsc / LSP / 子代理这套工具面一件不少，CLI 与 Web 两种形态都在虚拟机里跑，Web 由**鸿蒙宿主侧的浏览器**访问。
 
-部署脚本与完整说明在 [`deploy/harmonyos-pc/`](deploy/harmonyos-pc/README.md)：`preflight.sh`（只读探针，先采集这台机器的事实）→ `install.sh`（系统包 / Node / 依赖 / dsh / profile）→ `kingcode-web.sh`（起停 + 看门狗 + 四项体检）。
+部署脚本与完整说明在 [`deploy/harmonyos-pc/`](deploy/harmonyos-pc/README.md)：`preflight.sh`（只读探针，先采集这台机器的事实）→ `install.sh`（系统包 / Node / 依赖 / dsh / profile）→ `kingcode-web.sh`（起停 + 看门狗 + 五项体检）。
 
 两处**上游没写、不查一定踩**的坑，仓库里已经处理掉了：
 
 - **`--host 0.0.0.0` 会被 dsh 主动拒绝并退 1**（"intentionally not supported yet for safety"）。要让宿主访问得到，只能用覆盖层直接改 `webserver` 行——`deploy/harmonyos-pc/bind-all.patch.yml`，单独一个 opt-in 文件，**故意不写进 `profile/cordis.patch.yml`**：绑 0.0.0.0 等于把一个能执行任意命令的 agent 暴露给所在网络，那不该是 Mac/Win 上的默认值。
-- **不安全上下文（明文 HTTP 到非 loopback 地址）曾经让工作区永远转圈**：那种上下文里 `crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId，症状是页面 200、品牌正常、没有任何报错横幅。本仓库为此写过 `plugins/insecure-context-shim.js`。**dsh 0.1.2-alpha.1 起上游自己解决了**（`feat(util): mint UUIDs without crypto.randomUUID in every context` + 全仓 lint），垫片已删。仍然成立的是 `navigator.clipboard`：它同样卡 secure context，上游没治，跨机访问时复制按钮失效——不影响会话本身。
-- **跨机访问时的浏览器会话认证（0.1.2-alpha.1 起）**：`dsh web` 每进程打印一条带 `?token=…` 的地址，浏览器拿它换一枚签名 cookie（HttpOnly / SameSite=Strict / 30 天），之后整个 Host API 都认这枚 cookie。裸访问 → 401，Host 头不在信任名单 → 403。换来的是**配置面不再钉死在 loopback**：跨机也能在 Models 页里填 key。
+- **不安全上下文（明文 HTTP 到非 loopback 地址）曾经让工作区永远转圈**：那种上下文里 `crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId，症状是页面 200、品牌正常、没有任何报错横幅。本仓库为此写过 `plugins/insecure-context-shim.js`。**dsh 0.1.2-alpha.2 起上游自己解决了**（`feat(util): mint UUIDs without crypto.randomUUID in every context` + 全仓 lint），垫片已删。仍然成立的是 `navigator.clipboard`：它同样卡 secure context，上游没治，跨机访问时复制按钮失效——不影响会话本身。
+- **跨机访问时的浏览器会话认证（0.1.2-alpha.2 起）**：`dsh web` 每进程打印一条带 `?token=…` 的地址，浏览器拿它换一枚签名 cookie（HttpOnly / SameSite=Strict / 30 天），之后整个 Host API 都认这枚 cookie。裸访问 → 401，Host 头不在信任名单 → 403。服务端那份名单确实删了（跨机不再因方法名吃 403），但**配置面跨机仍不可用**——浏览器半侧按页面 hostname 自己关闸（`dsh-client-ui-settings/lib/client.js:1345` 把非 loopback 定为 memory 模式，describe 镜像根本不发请求），「模型」页报 `settings are unavailable in this browser`。跨机填 key 仍需服务侧落盘，或把访问地址变成 loopback（端口转发/反代，或走原生路线让壳连 127.0.0.1）。
 
 Node 的下限是**硬的 22.19.0**（会话压缩顶层具名导入 `node:zlib` 的 zstd API，缺了是链接期 SyntaxError；`pi-ai` 又自报 `engines >= 22.19`），而 openEuler 源里只有 20.x——`dnf install nodejs` 这条路堵死，脚本走 nodejs.org 官方 linux-arm64 tarball 并校验 SHA256。
 
-验证状态：**整条链路已在鸿蒙 PC 真机上跑通**（HUAWEI MateBook 14 / HarmonyOS 7.0.0.102 / API 26，虚拟机是 openEuler 24.03 LTS-SP1）——preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳连自家引擎全部一次过，宿主→虚拟机端口可达性也验掉了。细节见 [`deploy/harmonyos-pc/README.md`](deploy/harmonyos-pc/README.md) 的「真机实测」一节；浏览器半边另有一份模拟器十分钟复验流程（`rehearse-emulator.sh` + 文末附录）。
+验证状态（**验于 dsh 0.1.0-rc.6，2026-08-28**）：**整条链路已在鸿蒙 PC 真机上跑通**（HUAWEI MateBook 14 / HarmonyOS 7.0.0.102 / API 26，虚拟机是 openEuler 24.03 LTS-SP1）——preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳连自家引擎全部一次过，宿主→虚拟机端口可达性也验掉了。细节见 [`deploy/harmonyos-pc/README.md`](deploy/harmonyos-pc/README.md) 的「真机实测」一节；浏览器半边另有一份模拟器十分钟复验流程（`rehearse-emulator.sh` + 文末附录）。
 
 ## 校验
 
@@ -358,7 +368,7 @@ node eval/run.js --update-baseline    # 把本次结果定为新基线（有 har
 - **接其他模型厂商**：OpenAI 兼容端点零代码——换 `@deepseek-ai/dsh-llm-pi-ai` 行，`providers` 里手工声明路由（`api: openai-completions` + `baseURL` + `models`）；自有协议才需要写 LlmAdapter
 - **权限门**：另写 hook 插件监听 `tools/pre-execute` waterfall，返回 `{kind:'deny'|'ask'}`；沙箱可换 `dsh-bash-sandbox` + `dsh-sandbox-policy`（参照上游 acp-agent 示例）
 - **接 MCP server**：不进根 `cordis.yml`，用独立树 `cordis.mcp.yml`（第一行 `cordis:include` 根树，之后每个 server 一行 `@deepseek-ai/dsh-mcp-client`，stdio 或 streamable-http；没有 servers 表），`kingcode --config cordis.mcp.yml "<task>"` 启用。工具名 `mcp__<serverName>__<rawName>`；仓库自带的 `test/fixtures/mcp-echo-server.js` 是示例行也是 `npm test` 的被测夹具（`mcp__echo__add`）。**务必 `failOnStartupError: true`**：server 起不来时 boot 以退出码 1 响亮失败；默认 `false` 在本 CLI 树里等于静默降级——dsh-mcp-client 的告警走 `ctx.logger`，而这棵树没有日志 sink，stderr 只能看到子进程自己的崩溃输出，模型会零工具作答。另外 server 的 inputSchema 只能用 dsh-tools 的关键字子集（带 `$schema` 的会被拒绝注册），server 挂起不退出时 boot 会等满 SDK 固有的 60s。Web/Mac/Win 形态走 `profile/cordis.patch.yml` 的 `insert`（dsh 安装自带 dsh-mcp-client），本仓库未做
-- **PTC（原 Code Mode）**：给 `cordis.yml` 的 `tools` 行传 `mode: 'ptc'|'both'` 并挂 `dsh-code-runtime-worker-thread`。上游 0.1.2-alpha.1 把这个特性从 Code Mode 改名为 PTC（programmatic tool calls），**`mode: 'code'` 不再是合法取值**；留在旧名上的只有 `run_code` 工具名和 durable 事件词表（`tool/code-dispatch*`，等 session 格式 v0→v1 迁移一起改）。关于 `DSH_TOOLS_MODE`：这个环境变量不是 dsh-tools 自己读的，是上游 headless/web **bundle 的 patch 层**用 `!!js process.env.DSH_TOOLS_MODE` 读了再传给 `tools` 行——本仓库不挂那些 bundle，所以要这个旋钮就得自己在 `tools` 行写同样的 `!!js` 表达式
+- **PTC（原 Code Mode）**：给 `cordis.yml` 的 `tools` 行传 `mode: 'ptc'|'both'` 并挂 `dsh-code-runtime-worker-thread`。上游 0.1.2-alpha.2 把这个特性从 Code Mode 改名为 PTC（programmatic tool calls），**`mode: 'code'` 不再是合法取值**；留在旧名上的只有 `run_code` 工具名和 durable 事件词表（`tool/code-dispatch*`，等 session 格式 v0→v1 迁移一起改）。关于 `DSH_TOOLS_MODE`：这个环境变量不是 dsh-tools 自己读的，是上游 headless/web **bundle 的 patch 层**用 `!!js process.env.DSH_TOOLS_MODE` 读了再传给 `tools` 行——本仓库不挂那些 bundle，所以要这个旋钮就得自己在 `tools` 行写同样的 `!!js` 表达式
 
 ## 上游生态须知（踩过的坑）
 

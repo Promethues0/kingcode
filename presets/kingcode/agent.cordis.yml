@@ -169,7 +169,7 @@
     - id: tool-subagent-list-agents
       name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 
-    # modelSelectionSettings 是上游 0.1.2-alpha.1 加在**主 spawn 实例**上的开关
+    # modelSelectionSettings 是上游 0.1.2-alpha.2 加在**主 spawn 实例**上的开关
     # （`feat(subagent): authorize selectable child models`）：开了之后，这个工具
     # 才会多出 provider/model/reasoning_effort 三个可选参数、并注册 list_subagent_models。
     # 它**默认不生效**——真正的权威是 Host 侧那个默认关闭的 subagent-model-selection
@@ -233,7 +233,7 @@
     allowParallelInProgress: true
 
 # fetch 从 false 跟到 true，是照抄上游 standard preset 的现值。**但要知道它的确切
-# 含义**：上游在 0.1.2-alpha.1 里先加了 `dsh-web-fetch-approval-policy`（受限模式下
+# 含义**：上游在 0.1.2-alpha.2 里先加了 `dsh-web-fetch-approval-policy`（受限模式下
 # 逐次审批），又在同一版里用 `refactor(web): remove fetch approval policy` 撤掉了。
 # 撤的理由写在 docs/subsystems/web.md：公开地址校验 + 连接固定已经挡住 SSRF 目的地址，
 # 而逐次确认打断正常浏览却挡不住公开数据出站——模型本来就能用 shell 走同一张网。

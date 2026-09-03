@@ -128,7 +128,7 @@
 
       Respond in the language the user uses.
 
-# 工具注册表。mode 留默认 native——PTC（上游 0.1.2-alpha.1 把 Code Mode 连同
+# 工具注册表。mode 留默认 native——PTC（上游 0.1.2-alpha.2 把 Code Mode 连同
 # `mode: 'code'` 一起改名成 `ptc`）要另挂 dsh-code-runtime-worker-thread 才有意义，
 # 本树没挂，写了也只会让工具改走 run_code 而没有运行时。
 - id: tools
@@ -340,7 +340,7 @@
   name: '@deepseek-ai/dsh-spill-local'
   config:
     root: './.kingcode/spill'
-    # 上游 0.1.2-alpha.1 给这个后端加了「激活后跑一趟清扫」（`feat(spill-local):
+    # 上游 0.1.2-alpha.2 给这个后端加了「激活后跑一趟清扫」（`feat(spill-local):
     # one-shot startup cleanup for local spill files`）：没有定时器、没有守护进程，
     # 就是启动时扫一遍 root，删 mtime 早于 now − cleanupPeriodDays 的普通文件，
     # 再把空的 session 目录收掉。一次性 CLI 正是它设计时想的那个形态。

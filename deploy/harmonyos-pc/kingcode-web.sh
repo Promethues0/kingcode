@@ -157,9 +157,12 @@ build_engine_argv() {
     ENGINE=(dsh --profile kingcode --patch "$PATCH")
     # 这里曾经还有一个 KINGCODE_CREDENTIAL_BRIDGE=1 的覆盖层（凭证桥）。它存在的
     # 唯一理由是上游把 credentials.* / settings.* / llm.discoverModels 钉死在
-    # loopback（PRIVILEGED_METHODS），跨机填 key 无路可走。dsh 0.1.2-alpha.1 的
-    # `fix(web): authenticate the browser Host API` 把那份名单整段删了，跨机现在
-    # 直接用 dsh 自带的 Models 页填 key 即可，桥连同覆盖层一起退役。
+    # loopback（PRIVILEGED_METHODS），跨机填 key 无路可走。dsh 0.1.2-alpha.2 的
+    # `fix(web): authenticate the browser Host API` 把那份名单整段删了。**但跨机仍然
+    # 不能用 Models 页填 key**：浏览器半侧按页面 hostname 把非 loopback 的设置面降级成
+    # memory（dsh-client-ui-settings/lib/client.js:1345），请求根本不发。桥是服务端半侧
+    # 的东西、治不了那道闸，退役的真实理由是与上游新认证模型重叠。跨机填 key 走服务侧
+    # .credentials.yaml 落盘（见 deploy README「填 API key 的两条路」的第②条）。
     ENGINE+=(--port "$PORT")
   else
     ENGINE=(dsh --profile kingcode --port "$PORT")

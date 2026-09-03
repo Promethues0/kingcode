@@ -80,7 +80,7 @@ export const TOOL_ROUTING = buildToolRouting(true)
  * 每一条都对照 standard preset 与 dsh web 组合树的实况写（见 presets/kingcode/
  * agent.cordis.yml 头注释）：ask_user_question 存在、plan mode 存在、subagent 是
  * continuable（上游 tool:subagent 段已经说「默认后台」，这里只补它说漏的）、
- * bash-sandbox 默认 60s、tool-web 两个工具都开（上游 0.1.2-alpha.1 起 standard
+ * bash-sandbox 默认 60s、tool-web 两个工具都开（上游 0.1.2-alpha.2 起 standard
  * preset 的 `fetch: true`，且**没有**逐次审批——加过又撤了，理由见那一行的注释）。
  * web_search 的 `queries` 数组元数已经写在上游工具描述里（1–4 条），这里只补
  * 「该合并成一次调用」这个取舍，不重复机制。

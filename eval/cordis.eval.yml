@@ -257,7 +257,7 @@
   name: '@deepseek-ai/dsh-spill-local'
   config:
     root: './.kingcode/spill'
-    # 与根树一致（上游 0.1.2-alpha.1 的启动清扫，默认 30，写出来是因为它改了既有行为）
+    # 与根树一致（上游 0.1.2-alpha.2 的启动清扫，默认 30，写出来是因为它改了既有行为）
     cleanupPeriodDays: 30
 
 - id: timeout-policy

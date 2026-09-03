@@ -87,12 +87,13 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
 
 - **绑 0.0.0.0 是 opt-in 的单独文件，不进 profile 补丁层**：
   `deploy/harmonyos-pc/bind-all.patch.yml` 只给鸿蒙 PC 的虚拟机用。绑 0.0.0.0 等于把
-  一个能执行任意命令的 agent 暴露给所在网络（上游 dsh-host-webserver 自己写明
-  no TLS / no auth / no origin policy），写进 `profile/cordis.patch.yml` 会让 Mac/Win
+  一个能执行任意命令的 agent 暴露给所在网络（上游 dsh-host-webserver 的原话是它自己
+  「no TLS, authentication, or origin policy **of its own**」——alpha.2 起 `/api` 与首页
+  确实过 403/401 两层，但静态资源与未被认领的路由仍无遮拦，且一枚 30 天 cookie 就是全部凭证），写进 `profile/cordis.patch.yml` 会让 Mac/Win
   也跟着对外。顺带记一条上游事实：**`--host 0.0.0.0` 旗标会被 dsh-web-app 的 startup
   主动拒绝并退 1**，改 bind 只能走覆盖层改 `webserver` 行的 config（id 定向补丁整段
   替换 config，所以 `port` 那个 `!!js` 表达式必须原样重述，否则 `--port` 永久失效）。
-- **不安全上下文垫片已删（dsh 0.1.2-alpha.1 起上游自己解决了）**：明文 HTTP 到非
+- **不安全上下文垫片已删（dsh 0.1.2-alpha.2 起上游自己解决了）**：明文 HTTP 到非
   loopback 地址时浏览器判定为不安全上下文、`crypto.randomUUID` 不存在，曾经由
   `plugins/insecure-context-shim.js` 补上。上游的 `dsh-util-crypto` 收编了全部调用点
   并加了全仓 lint 拦住新的调用者，实测（前端 dist 25 个 JS + 59 个插件 client 半侧
@@ -101,10 +102,14 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
   按钮失效（不影响会话）。
 - **跨机配置面的 403 也没了**：`settings.*` / `credentials.*` /
   `agentPreset.read|copy|remove` / `llm.discoverModels` 曾被上游一份
-  `PRIVILEGED_METHODS` 名单钉死在 loopback；0.1.2-alpha.1 的
+  `PRIVILEGED_METHODS` 名单钉死在 loopback；0.1.2-alpha.2 的
   `fix(web): authenticate the browser Host API` 把那份名单整段删了，换成每进程
   launch token 换一次签名 cookie。现在的两层是：Host/Origin 栅栏不过 → 403，
   没有浏览器会话 → 401，**与方法名无关**。
+  **但这只解决了服务端半侧**：浏览器半侧的 `dsh-client-ui-settings` 仍按页面 hostname 把非
+  loopback 的设置面整体降级成 memory（`client.js:1345`，alpha.3 与 alpha.5 逐字相同），跨机
+  「模型」页仍报 `settings are unavailable in this browser`——客户端自关闸、不发请求，抓包
+  看不到 403。跨机填 key 只能服务侧落盘，或把地址变成 loopback。
 
 - **KingCode 的 harness home 是 `~/.kingcode`，不是 dsh 默认的 `~/.dsh`**：dsh 的 home
   是「一台机器一份」的用户数据根（`.agent-presets/`、`settings.yaml`、
@@ -147,7 +152,7 @@ errorCode/emptyOutput/exitCode/termination/signal），给 eval harness 判分�
 - **PTC（原 Code Mode）未启用**：依赖已从 package.json 移除。要启用需装
   `dsh-code-runtime-worker-thread`，并给 `cordis.yml` 的 `tools` 行传
   `mode: ptc`（或 `both`），且应当用 eval 证明轮数/耗时确有收益再留下。
-  上游 0.1.2-alpha.1 把这个特性连同配置值一起从 Code Mode 改名成 PTC
+  上游 0.1.2-alpha.2 把这个特性连同配置值一起从 Code Mode 改名成 PTC
   （`mode: 'code'` 在这一版**不再是合法取值**），只有 `run_code` 工具名与
   durable 事件词表（`tool/code-dispatch*`）留在旧名上。
 - **系统提示词的工作纪律在 `plugins/prompt-sections.js`，不在 persona**：persona 有

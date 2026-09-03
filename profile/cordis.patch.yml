@@ -64,13 +64,13 @@
     - id: kingcode-brand
       name: 'kingcode-web-brand'
 
-# ── 不安全上下文垫片：已删除（上游从 0.1.2-alpha.1 起自己解决了）────────────────
+# ── 不安全上下文垫片：已删除（上游从 0.1.2-alpha.2 起自己解决了）────────────────
 # 这里原本挂着 plugins/insecure-context-shim.js，补的是「明文 HTTP + 非 loopback
 # 主机 = 浏览器判定为 insecure context，`crypto.randomUUID` 不存在」，而 dsh 客户端
 # 每发一条 RPC 都要用它铸 rpcId——症状是页面 200、品牌正常、没有任何报错横幅，
 # 工作区永远停在「正在加载中」。
 #
-# 上游在 0.1.2-alpha.1 用 `feat(util): mint UUIDs without crypto.randomUUID in every
+# 上游在 0.1.2-alpha.2 用 `feat(util): mint UUIDs without crypto.randomUUID in every
 # context` 收编了全部调用点（新包 @deepseek-ai/dsh-util-crypto 走 getRandomValues），
 # 并加了一条全仓 no-restricted-properties lint 把将来的调用者也挡在门外——它的措辞
 # 就是「browsers withhold crypto.randomUUID outside secure contexts (plain-HTTP LAN

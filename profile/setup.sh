@@ -86,9 +86,12 @@ dsh plugin --profile "$PROFILE_NAME" add -w "$REPO/web-brand"
 
 # 这里曾经还装一个 web-config（跨机凭证桥）。它存在的唯一理由是上游把
 # credentials.* / settings.* / llm.discoverModels 钉死在 loopback（PRIVILEGED_METHODS），
-# 跨机形态下那几栏一律 403、填 key 无路可走。dsh 0.1.2-alpha.1 的
+# 跨机形态下那几栏一律 403、填 key 无路可走。dsh 0.1.2-alpha.2 的
 # `fix(web): authenticate the browser Host API` 把那份名单整段删掉，换成了每进程
-# launch token 换签名 cookie 的统一认证——跨机现在直接用 dsh 自带的 Models 页填 key。
+# launch token 换签名 cookie 的统一认证。**但跨机仍然不能用 Models 页填 key**：浏览器半侧
+# 按页面 hostname 把非 loopback 的设置面降级成 memory（dsh-client-ui-settings/lib/client.js:1345），
+# 请求根本不发。桥退役的真实理由是它与上游新认证模型重叠、维护不划算——它是服务端半侧的
+# 东西，本来也治不了客户端那道闸。跨机填 key 现在走服务侧 .credentials.yaml 落盘。
 # 桥连同它的覆盖层、两个测试一起退役了。
 #
 # 升级路径要注意：**老 profile 里还 link 着这个包**。重跑本脚本不会把它摘掉

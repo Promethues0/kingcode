@@ -8,7 +8,8 @@
 恰好死在 `MISSING_CREDENTIAL`，`npm test` 全绿；把凭证放进 el2 home 后，带钥 `say hi` 退出码 0，
 一个真用工具的任务也过了：bash 工具经 node-pty 在原生内核上跑 `uname -a`（回的是
 HongMeng Kernel 1.13.0），grep 工具经 ripgrep 数出 README 里 26 行——subprocess-local 的
-openharmony 检查器与 ripgrep 平台包两条链路都真跑了。Web 形态（B 级）未做。
+openharmony 检查器与 ripgrep 平台包两条链路都真跑了。**B 级（Web 形态 + 鸿蒙壳连 127.0.0.1）
+也已在 2026-09-03 真机全通**，见下面「B 级」一节。
 
 设备：HUAWEI MateBook 14 / HarmonyOS 7.0.0.102 / API 26 / HongMeng Kernel 1.13.0 /
 Node 26.8.1（`process.platform === 'openharmony'`，V8 非 lite、JIT 正常）。
@@ -74,7 +75,7 @@ node-pty 用本机 clang 现编（Harmonybrew 没有 llvm/clang formula，`ohos-
 本机、壳连 `127.0.0.1`，loopback 是安全上下文。**仍然需要**的是浏览器会话认证那一步
 （token → cookie 对 loopback 也不豁免，见 `deploy/harmonyos-pc/README.md` 闸④）。
 
-## B 级（Web 形态原生 + 鸿蒙壳连 127.0.0.1）——2026-09-02 深夜进展
+## B 级（Web 形态原生 + 鸿蒙壳连 127.0.0.1）——2026-09-03 已通
 
 **B 级已通（2026-09-03 09:38）**：全局 dsh alpha.3 在 HiShell 里装通并 boot 成功，鸿蒙壳
 （com.kingcode.client）连 `http://127.0.0.1:3081/?token=…` 加载出完整工作区，并在壳里发一条真消息
@@ -137,11 +138,11 @@ cookie signing secret 落盘在 `$DSH_HOME/.credentials.yaml`，所以**重启�
 
 ## 未做 / 未验
 
-- B 级还差最后一步：壳里选工作区、发一条真消息（见上「续跑起点」）；「连接异常」首次出现的原因未查（重连后消失）；
-  ArkWeb 是否跨应用重启持久化 cookie 未验。
+- 「连接异常」首次出现的原因未查（点一次重连就消失）；ArkWeb 是否跨应用重启持久化 cookie 未验。
 - 从零 `npm ci --ignore-scripts` 的顺序未复跑。
 - 本地编译的 `.node` 在这台机器上能 dlopen（node-pty 已证）；别的套件记录的 Merkle 签名要求
   没有在这里遇到。
-- ~~关掉 HiShell 窗口后进程是否存活~~ —— **已验（2026-09-03），答案是不存活**，见下节。
+- ~~关掉 HiShell 窗口后进程是否存活~~ —— **已验（2026-09-03），答案是不存活**，见上面
+  「引擎的生命周期绑死在 HiShell 上」一节。
 - 上游只开 Discussions：值得提的三件是 openharmony 当 POSIX 认、link EPERM 回落 rename、
   koffi 改懒加载——合入后 ①②③④ 都不再需要。

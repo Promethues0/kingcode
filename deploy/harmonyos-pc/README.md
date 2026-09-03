@@ -49,29 +49,32 @@ setup.sh **拷**进去的，光 pull 不重跑，跑的还是上一版的身份�
 > 停下并说清原因——clone 只拿得到已提交的东西，这一条挡的就是「装完一切正常，
 > 直到宿主访问时工作区转圈」。
 
-## 跨机访问：三道闸，两道会静默
+## 跨机访问：四道闸，一道会静默
 
-Web 形态跑在虚拟机里，浏览器在**鸿蒙宿主**上。这条链路上有三道闸，其中两道的失败
+Web 形态跑在虚拟机里，浏览器在**鸿蒙宿主**上。这条链路上有四道闸。第③闸已由上游收编、
+第④闸的失败形态是一页响亮的 401，真正静默（页面打得开、界面完整、什么错都不报）的只剩第②闸。
+原先那道会静默的失败
 形态是「页面打得开、界面完整、什么错都不报」——最容易被当成装好了。
 
 | 闸 | 症状 | 治法 |
 |---|---|---|
 | ① bind 地址 | 宿主连不上（connection refused） | 绑 `0.0.0.0`。**不能用 `--host 0.0.0.0`**，dsh 主动拒绝它并退 1；只能用 `bind-all.patch.yml` 覆盖 `webserver` 行。`kingcode-web.sh` 默认就带 |
 | ② `/api` 信任栅栏 | 页面 200、UI 完整、**工作区永远转圈**；控制台里 `/api` 全 403 | 绑 0.0.0.0 时 dsh 会在**启动那一刻**把本机所有非 internal IPv4 自动加进信任名单，所以按虚拟机 IP 访问是自动过的。IP 变了要重启服务 |
-| ③ secure context | 历史闸门：曾经是页面 200、UI 完整、工作区转圈，设置里写着 `crypto.randomUUID is not a function` | 明文 HTTP 到非 loopback 地址 = 浏览器判定不安全上下文，`crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId。**dsh 0.1.2-alpha.1 起上游自己解决了**（`dsh-util-crypto` 收编全部调用点 + 全仓 lint），KingCode 那个垫片已删，这一闸不再需要你做任何事 |
-| ④ 浏览器会话 | 页面直接 401 / 一片空白 | 0.1.2-alpha.1 起整个 Host API 要一枚会话 cookie。用就绪行里带 `?token=…` 的地址开一次即可，cookie 有效期 30 天；服务每次重启换一枚新 token |
+| ③ secure context | 历史闸门：曾经是页面 200、UI 完整、工作区转圈，设置里写着 `crypto.randomUUID is not a function` | 明文 HTTP 到非 loopback 地址 = 浏览器判定不安全上下文，`crypto.randomUUID` 不存在，而 dsh 客户端每条 RPC 都要用它铸 rpcId。**dsh 0.1.2-alpha.2 起上游自己解决了**（`dsh-util-crypto` 收编全部调用点 + 全仓 lint），KingCode 那个垫片已删，这一闸不再需要你做任何事 |
+| ④ 浏览器会话 | 页面直接 401 / 一片空白 | 0.1.2-alpha.2 起整个 Host API 要一枚会话 cookie。用就绪行里带 `?token=…` 的地址开一次即可，cookie 有效期 30 天；服务每次重启换一枚新 token |
 
-**跨机访问下这些是正常态，不是故障**：设置面板里 `/api/settings.describe` 报 403、
-凭证页与模型发现不可用、预设的读取/复制/删除转圈——上面第三段说的「配置面钉死
-loopback」就长这个样子。所以下面那条「403 = 栅栏拦了」只适用于 `agentPreset.list`
-这类普通方法；配置面的 403 是设计如此，改不掉，也不必改。
+**跨机访问下配置面不可用是正常态，不是故障**——但机理与 rc.6 时代不同，别再按 403 去查：
+现在**根本不发请求**。上游浏览器半侧按页面 hostname 自己关闸（`dsh-client-ui-settings/lib/client.js:1345`
+把非 loopback 页面的设置持久化定为 `memory` 模式，describe 镜像的 `load`/`ensure` 直接短路），
+于是「模型」页报 `settings are unavailable in this browser`，抓包一无所获——连 403 都不会出现。
+因此下面那条「403 = 栅栏拦了」现在对**所有**方法一致成立，不必再为配置面打补丁。
 
-一条命令分辨②和③：
+一条命令分辨①②④：
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \
-  -d '{"type":"client-request","rpcId":"probe","method":"agentPreset.list","payload":{}}' \
-  http://<虚拟机IP>:3081/api/agentPreset.list
+  -d '{"type":"client-request","rpcId":"probe","method":"agentPresets/list","payload":{}}' \
+  http://<虚拟机IP>:3081/api/agentPresets/list
 ```
 
 `200` = 栅栏放行；`401` = 没有会话 cookie（是④）；`403` = 栅栏拦了（是②）；
@@ -83,12 +86,17 @@ dsh 升级、品牌层或预设改动之后，用 `./rehearse-emulator.sh` 在�
 
 **上面那些都通了，仍然治不了的两样**：
 
-1. ~~跨机时整个配置面被钉死在 loopback~~——**这条已作废**（dsh 0.1.2-alpha.1 删掉了
-   `PRIVILEGED_METHODS`）。跨机现在可以在宿主浏览器的 Models 页里直接填 key。
+1. **跨机时配置面仍然不可用**——换了原因，症状还在。服务端那份 `PRIVILEGED_METHODS`
+   名单确实被 alpha.2 整段删了（跨机不再因方法名吃 403），但**浏览器半侧的闸没动**：
+   `dsh-client-ui-settings/lib/client.js:1345` 按页面 hostname 把非 loopback 的设置面
+   降级成 `memory`，describe 镜像永不发请求，「模型」页必然报
+   `settings are unavailable in this browser`（`settings-models/lib/client.js:1005`）。
+   alpha.3 与 alpha.5 逐字相同，`ownsHost` 在已发布包里没有任何生产者，上游也没留
+   任何部署侧开关。**所以跨机填 key 只能走下面「填 API key」的第②条（服务侧落盘）。**
 2. `navigator.clipboard` 同样是 secure-context 门槛 API（dsh 的复制按钮用它），
    **上游至今没治**（`ui-primitives/src/clipboard.ts` 仍直接调它）。后果只是复制按钮
    失效，会话本身不受影响。这是明文 HTTP 跨机访问下唯一还留着的 secure-context 限制
-   ——另一样（`crypto.randomUUID`）上游已经在 0.1.2-alpha.1 收编。
+   ——另一样（`crypto.randomUUID`）上游已经在 0.1.2-alpha.2 收编。
 
 **安全**：绑 0.0.0.0 等于把一个能执行任意命令的 agent 暴露给它所在的网络，而 dsh
 自己在文档里写明「no TLS, no auth, no origin policy」。在 NAT 模式的虚拟机里，
@@ -219,7 +227,8 @@ llm-deepseek:
 
 1. 页面 200，UI 完整；
 2. 品牌是 KingCode（web-brand 层在 ArkWeb 里生效）；
-3. `agentPreset.list` 探针 200（信任栅栏放行）；
+3. `agentPreset.list` 探针 200（信任栅栏放行）——那是当时的方法名，alpha.2 起规范名已改为
+   `agentPresets/list`，且请求体里的 `method` 必须与端点逐字相同，否则网关回 404；
 4. **工作区数据正常加载**——这条是「RPC 在真 ArkWeb 里跑通」的证据（历史上这里
    正是不安全上下文那一闸的翻车点）；
 5. WebSocket 下行保持 ESTABLISHED；
@@ -231,7 +240,12 @@ llm-deepseek:
 模拟器结果不等于真机结果，别把这节当成后者。复验步骤见文末附录，
 一条命令版是 `./rehearse-emulator.sh`。
 
-## 真机实测（2026-08-28，HUAWEI MNTXM-32A / HarmonyOS 7.0.0.102 / API 26）
+## 真机实测（2026-08-28，**dsh 0.1.0-rc.6 时代**，HUAWEI MNTXM-32A / HarmonyOS 7.0.0.102 / API 26）
+
+> ⚠️ 这一节的数据全部产于 rc.6，那时还没有 alpha.2 起的浏览器会话认证。表里「LAN 口 200」
+> 在 alpha.2+ 的预期值是 **401**（cookie 与 host:port 绑定，403 才是栅栏拦了）。
+> **虚拟机路线尚未在 alpha 认证模型下于真机复验**——提交 22d6820 只验了 Mac 壳冷启动与
+> `kingcode-web.sh`；鸿蒙壳仅构建通过（装机要在 DevEco 里点一次 Run），win 壳未编译验证。
 
 **宿主能访问虚拟机端口——这条通了**，整套方案最后一个未知数就此消除。证据链：
 
@@ -291,7 +305,7 @@ glibc 2.38、locale `C.UTF-8`、SELinux Disabled、sudo 免密可用、PID 1 是
    而同一段 CSS 的 `::before`/`::after` 照常生效，不报任何错。选择器只能锚组件自身的
    稳定属性（`viewBox`、类名后缀）。已修（见 `web-brand/client.js` 的 `BRAND_CSS`）。
 
-**「跨机时设置页大半打不开」这条已经作废（dsh 0.1.2-alpha.1 起）**。历史上确实如此：
+**「跨机时设置页大半打不开」这条已经作废（dsh 0.1.2-alpha.2 起）**。历史上确实如此：
 上游一份 `PRIVILEGED_METHODS` 名单把 `settings.*` / `credentials.*` /
 `agentPreset.read|copy|remove` / `llm.discoverModels` 钉死在 loopback，跨机一律 403，
 于是「通用设置」「模型」「插件」「Agent 预设」四栏在鸿蒙壳里全是降级态。
@@ -304,20 +318,33 @@ Host API 一视同仁的浏览器会话认证。现在的两层是：
 | **403** | Host/Origin 栅栏没放行（DNS rebinding 防线），**与方法名无关** | LAN IP 变过就重启服务——信任名单是启动那一刻的快照 |
 | **401** | 栅栏过了，但这个浏览器没有会话 cookie | 用就绪行里那条带 `?token=…` 的地址开一次，换到 cookie（有效期 30 天） |
 
-所以跨机现在四栏都是全功能的，填 key 也在「模型」页里做。
+这两层都过了之后，普通方法（会话、预设列表、模型目录）跨机全功能。**但「设置」那四栏不是**：
+它们卡在第三种形态——既不是 403 也不是 401，而是客户端自己判定为非 loopback、根本不发请求。
+所以跨机能正常开会话、能在**已有凭证的**模型之间切换（`session.selectModel` 不经设置面），
+但**不能新填一个 provider 的 key**。
 
 ### 填 API key 的两条路
 
-**① 直接用 dsh 自带的「设置 → 模型」页（推荐）**——跨机也能用了。
+**① 用 dsh 自带的「设置 → 模型」页——仅当浏览器地址栏是 `127.0.0.1` / `localhost` 时可用。**
 
-dsh 0.1.2-alpha.1 之前，`credentials.*` / `settings.*` / `llm.discoverModels` 被上游一份
+本机访问、或鸿蒙原生路线（引擎跑在本机 HiShell、壳连 `127.0.0.1`，见 `deploy/harmonyos-native/`）
+都满足这个条件，这时四栏全功能、填 key 就在这页做。**跨机（宿主浏览器打虚拟机 IP）不满足**，
+见上一节：客户端按 hostname 自关闸。想在跨机形态下用这条路，唯一的办法是把访问地址变成
+loopback——比如从宿主做端口转发/反代，让浏览器以 `http://127.0.0.1:<port>` 打开
+（注意 cookie 与 `host:port` 绑定，换了端口要用新的 `?token=` 地址重新换一次 cookie）。
+
+dsh 0.1.2-alpha.2 之前，`credentials.*` / `settings.*` / `llm.discoverModels` 被上游一份
 `PRIVILEGED_METHODS` 名单钉死在 loopback，跨机点开这几栏一律 403，所以本仓库写过一个
 凭证桥（`web-config/`）来补这一件事。`fix(web): authenticate the browser Host API`
 把那份名单**整段删掉**，换成了统一的浏览器会话认证（每进程 launch token 换一枚签名
-cookie）。现在跨机浏览器只要正常带着 cookie，配置面就是全功能的——桥、它的覆盖层
-`credential-bridge.patch.yml`、`KINGCODE_CREDENTIAL_BRIDGE` 这个开关都已经删除。
+cookie）。桥、它的覆盖层 `credential-bridge.patch.yml`、`KINGCODE_CREDENTIAL_BRIDGE` 这个开关都已经删除。
 
-在鸿蒙壳里开「设置 → 模型 → DeepSeek → 编辑」，填 key、保存即可。
+**要说清的是：删名单并不等于跨机可用。** 桥当年补的那件事（跨机填 key）在今天仍然做不到，
+只是原因从「服务端 403」换成了「客户端不发请求」——而桥是服务端半侧的东西，治不了客户端那道闸。
+退役的真实理由是它与上游新的统一认证模型重叠、维护成本不划算；跨机填 key 请走第②条。
+
+在**本机/loopback** 形态下（含鸿蒙原生路线的壳连 127.0.0.1），开「设置 → 模型 → DeepSeek → 编辑」，
+填 key、保存即可。
 
 **② 在虚拟机侧落盘**（想完全不经浏览器时）：
 
@@ -373,7 +400,7 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
 ## 跨机配置面的真机记录（凭证桥时期，2026-08-31）
 
 > 这一节记的是**凭证桥（`web-config/`）时期**的真机验证。桥本身已经随
-> dsh 0.1.2-alpha.1 退役（理由见上面「填 API key 的两条路」），但下面这五条
+> dsh 0.1.2-alpha.2 退役（理由见上面「填 API key 的两条路」），但下面这五条
 > 是鸿蒙真机本身的性质，与桥无关，**依然成立**，所以整节留着。
 
 当时在真机上装通并逐项验过：28 条断言全绿，含完整写入路径
@@ -437,7 +464,7 @@ preflight、install 八步、`npm test`、Web 服务、五项体检、鸿蒙壳�
    hdc -t 127.0.0.1:5555 shell "uitest uiInput click <X> <Y>"
    ```
 
-3. 判读口径（与「三道闸」一一对应）：
+3. 判读口径（与「四道闸」一一对应）：
    - **工作区数据加载出来了** = 会话 cookie 有效、`/api` 放行，浏览器半边整体通过；
    - **只有页面没有数据**（UI 完整、工作区转圈）= 用「跨机访问」一节那条 curl 探针
      分辨：`/api` 403 是 Host 信任栅栏（闸②，重启服务重采 IP）；401 是没有会话

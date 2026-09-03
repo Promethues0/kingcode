@@ -139,7 +139,7 @@ check(offRouting !== undefined && !/\blsp\b/.test(offRouting.text), 'apply 把 l
 // Web 段的载荷：每条都对照 standard preset / web 组合树实况写，改没了就该有人知道
 check(WEB_ROUTING.includes('ask_user_question'), 'Web 取舍告诉模型可以向用户提问（standard preset 挂 tool-ask-user）')
 check(WEB_ROUTING.includes('plan mode'), 'Web 取舍提到 plan mode（standard preset 挂 plan-mode）')
-// web_fetch 的开关与提示词必须同源。上游在 0.1.2-alpha.1 把 standard preset 的
+// web_fetch 的开关与提示词必须同源。上游在 0.1.2-alpha.2 把 standard preset 的
 // tool-web `fetch` 翻成 true（同一版里它还加过又撤掉了逐次审批策略），KingCode 的
 // preset 跟着翻了——这两处从此必须一起动：提示词说「用不了」而工具在目录里，模型
 // 会照说的不用，白扔一个能力；反过来说「能用」而工具不在，就是一次响亮的

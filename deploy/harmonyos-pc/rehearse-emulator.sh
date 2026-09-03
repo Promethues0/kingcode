@@ -45,7 +45,7 @@ OUT="${1:-./rehearsal-$(date +%Y%m%d-%H%M%S)}"
 # 页面指纹：品牌来自 web-brand 的服务端半侧（webServer.tapIndex 改的 <title>）。
 # 不在 = profile 没挂上这份交付（多半是 pull 完没重跑 profile/setup.sh），页面照样 200。
 #
-# 曾经这里还有一个 SHIM_MARK（垫片注入的标记）。垫片在 dsh 0.1.2-alpha.1 之后冗余
+# 曾经这里还有一个 SHIM_MARK（垫片注入的标记）。垫片在 dsh 0.1.2-alpha.2 之后冗余
 # 并删除，那条检查换成了「不带 cookie 必须 401」——见下面「未认证访问」那一步。
 #
 # 注意这个指纹只验服务端那半侧：侧栏与首页的 K 字标现在走的是客户端 slot
@@ -82,7 +82,7 @@ bad() {  # $1 步骤名  $2 这步测的是什么  $3 报错原文  $4 下一步
 fatal() { bad "$@"; die '前置自检没过，彩排没法继续（原因见上）'; }
 
 # ── 浏览器会话 ─────────────────────────────────────────────────────────────
-# dsh 0.1.2-alpha.1 起整个 Host API 都要一枚浏览器会话 cookie（`fix(web):
+# dsh 0.1.2-alpha.2 起整个 Host API 都要一枚浏览器会话 cookie（`fix(web):
 # authenticate the browser Host API`）。拿法：每进程随机一个 launch token，
 # 就绪行里打出来，`GET /?token=…` 换一枚签名 cookie（HttpOnly / SameSite=Strict）。
 # 所以彩排也得先换一次 cookie，否则从这里往下每一发请求都是 401。
@@ -113,15 +113,15 @@ exchange_cookie() {
 # 与 kingcode-web.sh 的 probe_api 同一形状。**现在有两层，别混**：
 #   403 = Host/Origin 栅栏没放行（DNS rebinding 防线，与方法名无关）
 #   401 = 栅栏过了但没有浏览器会话 cookie
-# 上游那份「钉死 loopback 的配置面」名单（PRIVILEGED_METHODS）在 0.1.2-alpha.1
+# 上游那份「钉死 loopback 的配置面」名单（PRIVILEGED_METHODS）在 0.1.2-alpha.2
 # 被整段删掉了，所以不再有「某些方法天生 403」这回事。
 # 不能写 `curl … || echo 连不上`：curl 失败时 -w 已经把 000 吐出来了。
 probe_api() {
   code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
     -b "$COOKIE_JAR" \
     -H 'content-type: application/json' \
-    -d '{"type":"client-request","rpcId":"rehearse","method":"agentPreset.list","payload":{}}' \
-    "http://$1/api/agentPreset.list" 2>/dev/null)"
+    -d '{"type":"client-request","rpcId":"rehearse","method":"agentPresets/list","payload":{}}' \
+    "http://$1/api/agentPresets/list" 2>/dev/null)"
   case "$code" in
     ''|000) echo '连不上' ;;
     *)      echo "$code" ;;
@@ -173,14 +173,14 @@ else
     '模拟器是不是关了/重启过？hdc list targets 重新看一眼，换 KINGCODE_HDC_TARGET 指对'
 fi
 
-# 先换浏览器会话 cookie：0.1.2-alpha.1 之后，不带它的话下面每一发 /api 都是 401，
+# 先换浏览器会话 cookie：0.1.2-alpha.2 之后，不带它的话下面每一发 /api 都是 401，
 # 会把「服务没起」和「没登录」两件事混成一件。
 TOKEN="$(launch_token)"
 if [ -z "$TOKEN" ]; then
   fatal 'launch token' \
     "服务日志里有没有带 ?token= 的就绪行（换浏览器会话 cookie 要用它）" \
     "$WEB_LOG 里没找到 token=…" \
-    "服务是 kingcode-web.sh 起的吗（日志路径由它决定）？手起的话把日志指过来：KINGCODE_STATE=<目录>。另外 dsh < 0.1.2-alpha.1 的就绪行没有 token，那种版本不需要这一步"
+    "服务是 kingcode-web.sh 起的吗（日志路径由它决定）？手起的话把日志指过来：KINGCODE_STATE=<目录>。另外 dsh < 0.1.2-alpha.2 的就绪行没有 token，那种版本不需要这一步"
 fi
 exchange_code="$(exchange_cookie "127.0.0.1:$PORT" "$TOKEN")"
 if [ "$exchange_code" = 303 ]; then
@@ -231,7 +231,7 @@ else
 fi
 
 # 这一步取代了老版的「垫片标记」。垫片（plugins/insecure-context-shim.js）在
-# dsh 0.1.2-alpha.1 之后已冗余并删除，它当年的角色是「这份交付到底装上没有」的
+# dsh 0.1.2-alpha.2 之后已冗余并删除，它当年的角色是「这份交付到底装上没有」的
 # 页面指纹；现在换成一条更直接的安全断言：**不带 cookie 就必须 401**。
 # 它同时能抓住两种真实故障：认证层根本没生效（回到裸奔），或者服务是老版本。
 naked_code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://$IP:$PORT/" 2>/dev/null)"
@@ -241,7 +241,7 @@ else
   bad '未认证访问' \
     '不带浏览器会话 cookie 时首页是不是被挡住（挡不住 = 这台机器的 LAN 上谁都能用这个 agent）' \
     "无 cookie → $naked_code（期望 401）" \
-    'dsh 是不是还在 0.1.2-alpha.1 之前？那种版本没有这层认证——升级，或者接受「绑 0.0.0.0 就等于对 LAN 敞开」'
+    'dsh 是不是还在 0.1.2-alpha.2 之前？那种版本没有这层认证——升级，或者接受「绑 0.0.0.0 就等于对 LAN 敞开」'
 fi
 
 if grep -q "$BRAND_MARK" "$OUT/index.html"; then
@@ -272,7 +272,7 @@ estab_before="$(emu_estab)"
 info "aa start 前，来自模拟器的 ESTABLISHED 基线：$estab_before 条"
 
 # URL 必须带 ?token=：客户机浏览器是全新的，没有那枚 cookie，裸地址会被 401 挡住
-# （0.1.2-alpha.1 起）。这与真机上用户的做法一致——第一次用就绪行里那条带 token 的
+# （0.1.2-alpha.2 起）。这与真机上用户的做法一致——第一次用就绪行里那条带 token 的
 # 地址打开，换到 cookie 之后才可以用干净的 /。
 aa_out="$("$HDC" -t "$TARGET" shell "aa start -A ohos.want.action.viewData -U 'http://$IP:$PORT/?token=$TOKEN' 2>&1" | tr -d '\r')"
 if printf '%s' "$aa_out" | grep -q 'start ability successfully'; then
@@ -336,8 +336,12 @@ fi
                             开的第一次，之后才靠 cookie；彩排里 aa start 传的也是那条
     工作区空转圈          = 看上面「信任栅栏」那步：403 是 Host 栅栏（IP 变了就重启
                             服务，信任名单是启动那一刻的快照）
-    设置面板能改 key      = 正常态。上游那份钉死 loopback 的配置面名单
-                            （PRIVILEGED_METHODS）在 0.1.2-alpha.1 已删，跨机也能改
+    设置面板打不开 / 「模型」页报
+    settings are unavailable in this browser
+                          = 跨机的正常态，不是本次交付的故障。服务端那份 PRIVILEGED_METHODS
+                            名单是 alpha.2 删了，但浏览器半侧仍按页面 hostname 把非 loopback
+                            的设置面降级成 memory（dsh-client-ui-settings/lib/client.js:1345），
+                            请求根本不发。跨机填 key 走虚拟机侧 .credentials.yaml 落盘
     复制按钮点了没反应    = 已知限制，navigator.clipboard 卡 secure context，
                             上游没治，不影响会话
 EOF

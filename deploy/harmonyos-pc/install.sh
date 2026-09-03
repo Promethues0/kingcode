@@ -189,7 +189,7 @@ fi
 # 这种极难现场定位。
 #
 # 曾经这里还查过 plugins/insecure-context-shim.js 在不在、profile 补丁挂没挂它。
-# 那个垫片在 dsh 0.1.2-alpha.1 之后已经冗余并删除（上游 dsh-util-crypto 收编了全部
+# 那个垫片在 dsh 0.1.2-alpha.2 之后已经冗余并删除（上游 dsh-util-crypto 收编了全部
 # crypto.randomUUID 调用点），所以两条检查一并去掉——留着的话，装一份**正确的**新代码
 # 反而会被 die 掉。
 for required in deploy/harmonyos-pc/kingcode-web.sh; do
@@ -266,7 +266,7 @@ cat <<DONE
 
   Web 形态（宿主浏览器访问）：
       $REPO_DIR/deploy/harmonyos-pc/kingcode-web.sh start
-      $REPO_DIR/deploy/harmonyos-pc/kingcode-web.sh status   # 四项体检，跨机 /api 要 200
+      $REPO_DIR/deploy/harmonyos-pc/kingcode-web.sh status   # 五项体检；本机 /api 要 200，「本机打 LAN 口」401 也正常（cookie 绑 host:port，403 才是栅栏拦了）
       $REPO_DIR/deploy/harmonyos-pc/kingcode-web.sh url      # 宿主该开哪个地址
 
   更新（重要）：
