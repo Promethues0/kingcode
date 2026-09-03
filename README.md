@@ -344,7 +344,15 @@ bundleName 与设备 UDID，只能现场生成），连上真机点 Run。
    `linkFeature=FileOpen`，本以为是绕开上面那个崩溃的另一个入口）——从应用发这条 want，
    HiShell 同样起不来；从 hdc 发，HiShell 能活但**并不执行**那个脚本，只是把窗口切到前台。
    三种 URI 形式都试过。
-5. 让**系统开机自启终端**——设备上没有 XDG autostart 目录，`settings list` 里没有任何
+5. **企业设备管理（EDM）白名单**——唯一一条官方出口，API 完全对得上：
+   `@ohos.enterprise.applicationManager` 的 `addAutoStartApps`（开机自启）/
+   `addKeepAliveApps`（保活）/ `addFreezeExemptedApps`（免冻结），设备上也有
+   `/system/bin/edm`，`edm enable-admin -t super` 能就地激活超级管理员。**卡在签名**：
+   这些接口要 `ohos.permission.ENTERPRISE_MANAGE_APPLICATION`，带这条权限的 hap 装不上
+   （`9568289 grant request permissions failed`），它要 MDM 企业签名
+   （provision 的 `app-feature: hos_enterprise_mdm`），个人调试证书拿不到。
+   **有企业开发者账号的话这条是通的**——那是目前唯一能让终端由系统托管、用户完全不用管的正规路径。
+6. 让**系统开机自启终端**（不走 EDM）——设备上没有 XDG autostart 目录，`settings list` 里没有任何
    boot/startup/autostart 项，设置应用的 13 个 ability 里也没有「启动管理／后台保活」入口。
 
 **引擎的生命周期绑死在 HiShell 上**（09-03 实测）：切后台没事，但关掉 HiShell 窗口或 force-stop，引擎立刻死——`setsid` 让它自成会话、被 init 收养也挡不住，鸿蒙在应用终止时收走整个沙箱进程组。所以正常形态是「窗口留着、切后台」，开机自启也只能做到「自动打开 HiShell 并拉起引擎」。「应用沙箱里没有 Node」这句对 normal_hap 域仍成立，对整台机器不成立。

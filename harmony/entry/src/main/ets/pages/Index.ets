@@ -111,7 +111,19 @@ struct Index {
   ///    这条 want，HiShell 同样起不来；从 hdc 发，HiShell 能活但**并不执行**那个脚本，
   ///    只是把窗口切到前台。三种 URI 形式（`file:///…`、`file://docs/…`、
   ///    `file:///storage/media/…`）都试过，都不执行。
-  /// 5. **让系统开机自启终端**：设备上没有 XDG autostart 目录，`settings list` 里没有
+  /// 5. **企业设备管理（EDM）的白名单** —— 这是唯一一条「官方支持的系统能力」，而且
+  ///    API 完全对得上需求：`@ohos.enterprise.applicationManager` 提供
+  ///    `addAutoStartApps`（开机自启）、`addKeepAliveApps`（保活）、
+  ///    `addFreezeExemptedApps`（免冻结）；设备上也确实有 `/system/bin/edm`，
+  ///    `edm enable-admin -n <bundle> -a <ability> -t super` 就能就地激活超级管理员。
+  ///    卡在签名：这些接口要 `ohos.permission.ENTERPRISE_MANAGE_APPLICATION`，
+  ///    而带这条权限的 hap **装不上**——
+  ///      `9568289 install failed due to grant request permissions failed.`
+  ///      `PermissionName: ohos.permission.ENTERPRISE_MANAGE_APPLICATION`
+  ///    它要 MDM 企业签名（provision 的 `app-feature: hos_enterprise_mdm`），
+  ///    个人调试证书拿不到。**有企业开发者账号的话这条路是通的**，是目前唯一
+  ///    能做到「终端由系统托管、用户完全不用管」的正规出口。
+  /// 6. **让系统开机自启终端**（不走 EDM）：设备上没有 XDG autostart 目录，`settings list` 里没有
   ///    任何 boot/startup/autostart 项，设置应用的 13 个 ability 里也没有「启动管理 /
   ///    后台保活」这类入口。参考项目那套四层钩子自陈 1-3 分钟延迟且常要手工开一次终端。
   ///
