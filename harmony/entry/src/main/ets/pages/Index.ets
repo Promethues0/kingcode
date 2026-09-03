@@ -69,7 +69,8 @@ struct Index {
           Text('KingCode')
             .fontSize(34)
             .fontWeight(FontWeight.Bold)
-          Text('填**带 ?token= 的完整地址**，首次用它换一枚 30 天的会话 cookie。\n' +
+          // ArkTS 的 Text 不渲染 markdown，这里不能写 ** **（会原样显示成星号，真机上验过）
+          Text('填「带 ?token= 的完整地址」，首次用它换一枚 30 天的会话 cookie。\n' +
                '引擎在本机 HiShell 里：kc-hmos url\n' +
                '引擎在融合开发引擎的虚拟机里：kingcode-web.sh url（IP 每次开机可能变）')
             .fontSize(14)

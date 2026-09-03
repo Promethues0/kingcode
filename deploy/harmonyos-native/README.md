@@ -106,6 +106,16 @@ curl 走过的链：`GET /` 401 → `GET /?token=…` 303 + Set-Cookie → 带 c
 `/favicon.svg` 200、`<title>KingCode</title>`（品牌层 host 半侧生效）。壳里第一次进页面底部有「连接异常」，点一次重连
 （页面重载、弹上游「内测声明」点「继续」）后消失，`/proc/net/tcp` 里能看到多条到 :3081 的 loopback 连接。
 
+**壳的 401 判读已在真机验过（2026-09-03 12:25）**，正反两面都有：
+
+| 构建 | 连一个无 cookie 的地址（引擎在跑，标准 401） |
+|---|---|
+| 改之前（08-28 那版，只挂 onErrorReceive） | WebView 里只剩服务端那行英文 `dsh web authentication required; reopen the URL printed by dsh web.`，**地址页不出现**，用户无从下手 |
+| 改之后（22d6820 起，挂了 onHttpErrorReceive） | 回到地址页并给出中文指引：「需要带 token 的地址换一次会话 cookie。本机形态：在 HiShell 里跑 kc-hmos url…」 |
+
+复现办法：`bm clean -n com.kingcode.client -d` 清掉 cookie 与存的地址，再填一个不带 `?token=` 的地址去连。
+顺带修掉一个真机才看得出的小瑕疵：**ArkTS 的 `Text` 不渲染 markdown**，地址页文案里的 `**` 会原样显示成星号。
+
 **自动化驱动的两条经验**（这次踩过）：① 系统 CapsLock 开着时 `uitest uiInput text` 输入整体大小写反转，
 `keyEvent 2074` 不一定改得动——改用 **`uitest uiInput inputText <x> <y> '<文本>'`**，按坐标直写、不走键盘、
 大小写如实；② Ctrl+A（`keyEvent 2072 2017`）在 WebView 里会选中整页并弹出上下文菜单，把后续输入全吃掉，
