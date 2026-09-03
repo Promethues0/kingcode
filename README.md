@@ -227,26 +227,46 @@ cd win; .\build.ps1                    # 框架依赖，需目标机装 .NET 8 �
 
 **环境变量**：`KINGCODE_PORT`（默认 3081）、`KINGCODE_NODE`、`KINGCODE_DSH_ENTRY`（后两个用于自动定位失败时手工指路）。引擎日志在 `%LOCALAPPDATA%\KingCode\engine.log`。
 
-### 验证状态：编译验证过，运行未验证
+### 验证状态：真机运行验证过（2026-09-03）
 
-开发机是 macOS，所以做了交叉编译验证（.NET 8 起支持从 mac/Linux 编出 Windows GUI exe）。
+开发机是 macOS，所以先做交叉编译验证（.NET 8 起支持从 mac/Linux 编出 Windows GUI exe），
+2026-09-03 补上了真机运行验证——跑在**鸿蒙 PC 自带的 Windows 11 虚拟机**里
+（`com.sanway.ecoengine` 的 StratoVirt，Windows 11 `10.0.26200.8037`，8 vCPU / 12 GB，
+无外网；Node 与 dsh 的 win32-x64 依赖树都是从 Mac 经 virtiofs 共享目录送进去的）。
 
-**已验证**：
+**编译期已验证**：
 - `dotnet build` 与 `dotnet publish -r win-x64` 均 **0 错误 0 警告**通过。
 - 产物是合法的 Windows GUI 程序：PE32+ / x86-64 / **子系统 = 2（GUI）**——这一位设错就会在启动时弹出控制台黑框，而它恰好是 ≤.NET 7 交叉编译会静默弄错的地方。
 - 图标真的嵌进去了：把 `assets/KingCode.ico` 的 7 个帧逐个拿特征字节去 exe 的资源节里比对，**7/7 命中**。
 - `assets/KingCode.ico` 自身的二进制结构（`file(1)` 识别为 7 图标，声明尺寸与内嵌 PNG 实际尺寸逐条一致）。
 - `profile/setup.sh`（macOS 版）实跑通过。
-- **alpha.2 起的会话认证适配也已编译验证**（2026-09-03，.NET 8.0.424 交叉编译，0 错误 0 警告）：
-  探活放宽到「200 或 401 都算活着」、从引擎 stdout 的就绪行解析带 `?token=` 的地址交给
-  WebView 首次加载、给 dsh 传 `--no-open`。**仍未在 Windows 上运行验证**——这三处的行为
-  只在 Mac 壳上做过冷启动实跑（同一套逻辑、同构实现）。
 
-**仍未验证**（这些只有在真 Windows 上跑才知道）：
-- 运行期行为：WebView2 初始化时序、Job Object 的 P/Invoke 结构体布局在真实内核上是否被接受、窗口与菜单的实际观感。
-- node/dsh 路径探测在你的机器上是否命中（探测顺序是按调研的安装惯例写的，但没有真机样本）。
-- `profile/setup.ps1`（是 setup.sh 的直译，逻辑同构但未运行）。
-- 交叉编译产物在 Windows 上的实际启动。官方对 `EnableWindowsTargeting` 留过一句保留意见：该属性用于非 Windows 平台开发，**正式发布仍建议在 Windows 上构建**——所以你那边最好用 `build.ps1` 重新构建一次，而不是直接用我这边交叉编译出来的 exe。
+**运行期已验证**（真 Windows 11，交叉编译产物直接跑，没在 Windows 上重编）：
+- 起来就是 GUI：**没有自带控制台窗口**；标题栏与任务栏都是嵌进去的 K 图标；`引擎(E)` 菜单在位。
+- 三条失败路径都长对了：找不到 `node.exe`、引擎意外退出（带日志尾巴与「打开日志」按钮）、启动超时（带日志路径）。
+- node 与 dsh 的定位：`node.exe` 走 PATH 命中；dsh 入口在 npm 全局默认 prefix `%APPDATA%\npm\node_modules\@deepseek-ai\dsh\lib\bin.js` 命中。
+- 拉起参数正确，stdout/stderr 落到 `%LOCALAPPDATA%\KingCode\engine.log`。
+- **Job Object 兜底真的生效**：`taskkill /f /im KingCode.exe` 之后 `tasklist` 里没有残留的 `node.exe`。
+- **alpha.2 起的会话认证适配三处全部实跑验证**：
+  - 探活放宽到 401 也算活着——引擎起来后裸地址 `curl` 稳定返回 `status=401`，只认 2xx 的话探活永远不满足；
+  - 就绪行解析——引擎实际打的是 `dsh web: http://127.0.0.1:3081/?token=<43 字符>`（本机形态下**只有 loopback 这一半，没有 `(LAN: …)`**，解析器两种都吃）；
+  - `--no-open` 生效——全程没有另外弹出系统浏览器。
+  - 最后 WebView2 用那条带 token 的地址加载成功，`netstat` 里能看到 WebView2 渲染进程对 3081 的两条 ESTABLISHED 连接，而同一时刻裸地址仍然 401——说明进去靠的是 token 换来的 cookie，不是认证没开。
+  - 页面走完「内测声明 → 添加 API Key」引导；**模型设置弹窗没有降级**（loopback 下客户端闸判定为 `persistence = "host"`），与本文「跨机访问时的浏览器会话认证」那条里的客户端闸分析一致。
+
+**这一轮改出来的东西**：等就绪行的上限原来 mac 60 秒 / win 90 秒，**都不够**——那台虚拟机冷启动装配整棵插件树用了 100 秒以上，壳先报了超时、引擎随后自己起来了，用户看到的是一页假的失败（热启动只要几十秒）。两个壳统一放宽到 **240 秒**（`win/ServerController.cs` 的 `ReadySeconds`、`mac/Sources/ServerController.swift` 的 `readySeconds`）。引擎真崩了走的是进程退出分支、立刻报错，所以放宽不会让真失败拖久。
+
+**仍未验证**：
+- **KingCode 的组合树本身**没在 Windows 上跑过：那台虚拟机没有外网，`dsh plugin add` 要走 pnpm 装依赖，所以上面用的是一个只含 `@deepseek-ai/dsh-base` + `dsh-web-app` 两个 bundle 的普通 dsh profile，**没有 `web-brand` 品牌层、没有 kingcode preset**。壳这一侧的行为与 profile 内容无关，但界面上的 KingCode 品牌与预设没在 Windows 上见过。
+- `profile/setup.ps1`（是 setup.sh 的直译，逻辑同构但仍未运行）。
+- 真实模型调用（没有在虚拟机里填 API Key）。
+- **框架依赖产物需要 .NET Desktop Runtime**：那台虚拟机没装，`build.sh` 默认产物（`--self-contained false`）在裸机 Windows 上起不来。要么让用户先装 .NET 8 Desktop Runtime，要么改用自包含发布：
+  ```
+  dotnet publish KingCode.csproj -c Release -r win-x64 --self-contained true \
+    -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish-sc
+  ```
+  （约 65 MB 单文件，上面的真机验证用的就是它。）
+- 官方对 `EnableWindowsTargeting` 留过一句保留意见：该属性用于非 Windows 平台开发，**正式发布仍建议在 Windows 上构建**——所以正式分发最好用 `build.ps1` 在 Windows 上重新构建一次。
 
 跑不通就把报错发我。定位失败时可用 `KINGCODE_NODE` / `KINGCODE_DSH_ENTRY` 手工指路。
 

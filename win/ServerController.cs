@@ -15,6 +15,15 @@ internal sealed class ServerController : IDisposable
 
     private static readonly HttpClient Probe = new() { Timeout = TimeSpan.FromSeconds(2) };
 
+    /// <summary>
+    /// 等就绪行的上限。原来是 90 秒，实测不够：鸿蒙 PC 里那台 Windows 11 虚拟机
+    /// （8 vCPU / 12G）冷启动装配整棵树用了 100 秒以上，壳先报了超时、引擎随后自己
+    /// 起来了——用户看到的是一页假的失败。热启动只要几十秒，所以这条上限只对首启
+    /// 和慢机器起作用，放宽不会让真失败拖久（引擎真崩了走的是 Exited 分支，立刻报错）。
+    /// mac/Sources/ServerController.swift 的 waitUntilReady 用同一个数。
+    /// </summary>
+    private const int ReadySeconds = 240;
+
     private readonly int _port;
     private readonly JobObject _job;
     private Process? _process;
@@ -270,7 +279,7 @@ internal sealed class ServerController : IDisposable
     }
 
     /// <summary>
-    /// 轮询到起得来为止；引擎首启要装配整棵插件树，给足 90 秒。
+    /// 轮询到起得来为止；引擎首启要装配整棵插件树，给足 <see cref="ReadySeconds"/> 秒。
     /// <para>
     /// <b>判据是日志里的就绪行，不是端口探活</b>：端口先开、整棵 Loader 树 settle 之后
     /// 才打那一行，而那一行里的 <c>?token=</c> 正是首次加载要用来换 cookie 的东西。
@@ -279,7 +288,7 @@ internal sealed class ServerController : IDisposable
     /// </summary>
     private async Task WaitUntilReadyAsync()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(90);
+        var deadline = DateTime.UtcNow.AddSeconds(ReadySeconds);
         while (DateTime.UtcNow < deadline)
         {
             var ready = ReadyUrlFromLog();
@@ -292,7 +301,7 @@ internal sealed class ServerController : IDisposable
             if (_process is { HasExited: true }) return;   // Exited 事件已经报过错了
             await Task.Delay(400);
         }
-        StateChanged?.Invoke(new State(Phase.Failed, $"引擎启动超时（90 秒）。\n{LogTail()}"));
+        StateChanged?.Invoke(new State(Phase.Failed, $"引擎启动超时（{ReadySeconds} 秒）。\n{LogTail()}"));
     }
 
     private string LogTail(int lines = 8)

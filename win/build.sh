@@ -25,4 +25,7 @@ dotnet publish KingCode.csproj -c Release -r win-x64 \
 
 echo
 echo "构建完成：$(pwd)/publish/KingCode.exe"
-echo "注意：这是交叉编译产物，未在 Windows 上运行验证过。"
+echo "注意：这是交叉编译产物。同款产物已在真 Windows 11 上跑通（见 README「验证状态」），"
+echo "      但它是**框架依赖**的，目标机必须装 .NET 8 Desktop Runtime。裸机分发请改自包含："
+echo "      dotnet publish KingCode.csproj -c Release -r win-x64 --self-contained true \\"
+echo "        -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish-sc"

@@ -216,7 +216,15 @@ final class ServerController {
     /// **判据是日志里的就绪行，不是端口探活**：端口先开、整棵 Loader 树 settle 之后才打
     /// 那一行，而那一行里的 `?token=` 正是首次加载要用来换 cookie 的东西。早一步拿裸地址
     /// 去加载，只会得到一页 401。
-    private func waitUntilReady(deadline: Date = Date().addingTimeInterval(60)) {
+    ///
+    /// 上限原来是 60 秒，实测不够：鸿蒙 PC 里那台 Windows 11 虚拟机（8 vCPU / 12G）
+    /// 冷启动装配整棵树用了 100 秒以上，壳先报了超时、引擎随后自己起来了——用户看到
+    /// 的是一页假的失败。热启动只要几十秒，所以这条上限只对首启和慢机器起作用，放宽
+    /// 不会让真失败拖久（引擎真崩了走的是 terminationHandler 分支，立刻报错）。
+    /// win/ServerController.cs 的 ReadySeconds 用同一个数。
+    private static let readySeconds: TimeInterval = 240
+
+    private func waitUntilReady(deadline: Date = Date().addingTimeInterval(ServerController.readySeconds)) {
         if let ready = readyURLFromLog() {
             authenticatedURL = ready
             DispatchQueue.main.async { self.onState?(.ready(ready)) }
@@ -224,7 +232,7 @@ final class ServerController {
         }
         guard Date() < deadline else {
             DispatchQueue.main.async {
-                self.onState?(.failed("引擎启动超时（60 秒）。\n\(self.logTail())"))
+                self.onState?(.failed("引擎启动超时（\(Int(ServerController.readySeconds)) 秒）。\n\(self.logTail())"))
             }
             return
         }
