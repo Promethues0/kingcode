@@ -47,6 +47,23 @@ function whitelistHiShell(): void {
   } catch (e) {
     hilog.error(DOMAIN, 'kingcode', 'EDM addKeepAliveApps 失败: %{public}s', JSON.stringify(e));
   }
+
+  // 立刻读回来。edm 没有查询子命令、公开 SDK 也没有 isAdminEnabled，所以这两行日志
+  // 就是「激活是否真的生效」的唯一凭据：
+  //   hdc shell "hilog -x | grep 'EDM: 读回'"
+  try {
+    const auto: Array<Want> = applicationManager.getAutoStartApps(self);
+    hilog.info(DOMAIN, 'kingcode', 'EDM: 读回 自启白名单 = %{public}s',
+      JSON.stringify(auto.map((w: Want) => w.bundleName)));
+  } catch (e) {
+    hilog.error(DOMAIN, 'kingcode', 'EDM getAutoStartApps 失败: %{public}s', JSON.stringify(e));
+  }
+  try {
+    const keep: Array<string> = applicationManager.getKeepAliveApps(self, MAIN_ACCOUNT);
+    hilog.info(DOMAIN, 'kingcode', 'EDM: 读回 保活白名单 = %{public}s', JSON.stringify(keep));
+  } catch (e) {
+    hilog.error(DOMAIN, 'kingcode', 'EDM getKeepAliveApps 失败: %{public}s', JSON.stringify(e));
+  }
 }
 
 export default class EnterpriseAdminAbility extends EnterpriseAdminExtensionAbility {

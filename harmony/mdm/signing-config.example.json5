@@ -1,0 +1,27 @@
+// 把这一段整个替换掉 harmony/build-profile.json5 里的 "signingConfigs": []，
+// 五个路径/口令换成你 AGC 下载的 MDM 材料。**不要提交到仓库**
+// （仓库里那份必须保持 "signingConfigs": []，签名材料是机器本地的）。
+//
+// 填完先验一遍再构建：
+//   ./mdm/check-profile.sh <上面 profile 指向的 .p7b>
+//   期望看到 app-feature = hos_enterprise_mdm
+//
+// 完全不用开 DevEco 的 GUI —— hvigor 直接读这段。
+"signingConfigs": [
+  {
+    "name": "default",
+    "type": "HarmonyOS",
+    "material": {
+      // AGC 申请 MDM 证书时生成/下载的私钥库
+      "storeFile": "/绝对路径/kingcode-mdm.p12",
+      "storePassword": "你的 keystore 口令",
+      "keyAlias": "你的 key 别名",
+      "keyPassword": "你的 key 口令",
+      "signAlg": "SHA256withECDSA",
+      // AGC 下载的 MDM Provision Profile，app-feature 必须是 hos_enterprise_mdm
+      "profile": "/绝对路径/kingcode-mdm.p7b",
+      // AGC 下载的发布证书
+      "certpath": "/绝对路径/kingcode-mdm.cer"
+    }
+  }
+],
