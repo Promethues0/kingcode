@@ -4,7 +4,8 @@
 //
 // 填完先验一遍再构建：
 //   ./mdm/check-profile.sh <上面 profile 指向的 .p7b>
-//   期望看到 app-feature = hos_enterprise_mdm
+//   期望看到 app-distribution-type = enterprise_mdm
+//   （**不是** app-feature —— 那个字段两种 profile 都是 hos_normal_app，不区分 MDM）
 //
 // 完全不用开 DevEco 的 GUI —— hvigor 直接读这段。
 "signingConfigs": [
